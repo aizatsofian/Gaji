@@ -1,6 +1,4 @@
 desktop.ini
 *.gsheet
 .clasp.json
-.claspignore
 node_modules/
-appsscript.json
