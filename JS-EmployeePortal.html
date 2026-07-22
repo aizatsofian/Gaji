@@ -1,0 +1,379 @@
+<script type="text/babel">
+    function EmployeeDashboardView({ user, email, employeeID }) {
+      const [loading, setLoading] = useState(true);
+      const [dashboardData, setDashboardData] = useState(null);
+
+      useEffect(() => {
+        loadDashboard();
+      }, [employeeID, email]);
+
+      const loadDashboard = () => {
+        setLoading(true);
+        google.script.run
+          .withSuccessHandler((result) => {
+            setLoading(false);
+            if (!result) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to load dashboard data.' });
+              return;
+            }
+            if (result.success) {
+              setDashboardData(result);
+            } else {
+              Swal.fire({ icon: 'error', title: 'Error', text: result.message });
+            }
+          })
+          .withFailureHandler((err) => {
+            setLoading(false);
+            Swal.fire({ icon: 'error', title: 'Error', text: err.message });
+          })
+          .getEmployeeDashboardStats(employeeID);
+      };
+
+      if (loading) {
+        return (
+          <div className="data-section">
+            <div className="dashboard-grid-3">
+              {[...Array(4)].map((_, i) => <DashboardCardSkeleton key={i} />)}
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="data-section">
+          {/* Welcome Card */}
+          <div className="employee-welcome-card">
+            <div className="welcome-avatar">
+              <i className="fas fa-user-circle"></i>
+            </div>
+            <div className="welcome-info">
+              <h2>Welcome, {dashboardData?.employee?.EmployeeName || user}!</h2>
+              <p><i className="fas fa-id-badge"></i> {dashboardData?.employee?.EmployeeID || employeeID}</p>
+              <p><i className="fas fa-envelope"></i> {dashboardData?.employee?.Email || email}</p>
+              <p><i className="fas fa-briefcase"></i> {dashboardData?.employee?.Position || 'Employee'}</p>
+            </div>
+          </div>
+
+          {/* Stats Cards */}
+          <div className="dashboard-grid-4">
+            <div className="stat-card">
+              <div className="stat-card-icon" style={{ background: 'linear-gradient(135deg, var(--navy-primary), var(--navy-light))' }}>
+                <i className="fas fa-file-invoice-dollar"></i>
+              </div>
+              <div className="stat-card-value">{dashboardData?.stats?.totalPayslips || 0}</div>
+              <div className="stat-card-label">Total Payslips</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-card-icon" style={{ background: 'linear-gradient(135deg, #34a853, #2e7d32)' }}>
+                <i className="fas fa-check-circle"></i>
+              </div>
+              <div className="stat-card-value">{dashboardData?.stats?.paidPayslips || 0}</div>
+              <div className="stat-card-label">Paid</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-card-icon" style={{ background: 'linear-gradient(135deg, #fbbc04, #f57c00)' }}>
+                <i className="fas fa-clock"></i>
+              </div>
+              <div className="stat-card-value">{dashboardData?.stats?.pendingPayslips || 0}</div>
+              <div className="stat-card-label">Pending</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-card-icon" style={{ background: 'linear-gradient(135deg, #0074D9, #0056b3)' }}>
+                <i className="fas fa-dollar-sign"></i>
+              </div>
+              <div className="stat-card-value">${dashboardData?.stats?.totalEarnings || '0.00'}</div>
+              <div className="stat-card-label">Total Earnings</div>
+            </div>
+          </div>
+
+          {/* Latest Payslip */}
+          {dashboardData?.stats?.lastPayslip && (
+            <div className="latest-Payslip-card">
+              <h3><i className="fas fa-receipt"></i> Latest Payslip</h3>
+              <div className="latest-Payslip-info">
+                <div className="Payslip-period">
+                  <span className="label">Period</span>
+                  <span className="value">{dashboardData.stats.lastPayslip.PayMonth} {dashboardData.stats.lastPayslip.PayYear}</span>
+                </div>
+                <div className="Payslip-amount">
+                  <span className="label">Net Pay</span>
+                  <span className="value">${parseFloat(dashboardData.stats.lastPayslip.NetPay).toFixed(2)}</span>
+                </div>
+                <div className="Payslip-status">
+                  <span className="label">Status</span>
+                  <span className={`status-badge ${dashboardData.stats.lastPayslip.Status === 'Paid' ? 'status-paid' : 'status-pending'}`}>
+                    {dashboardData.stats.lastPayslip.Status}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="info-note">
+            <i className="fas fa-info-circle"></i>
+            <span>View and download your Payslips from the "My Payslips" section in the menu.</span>
+          </div>
+        </div>
+      );
+    }
+
+    // ============= EMPLOYEE SELF-SERVICE PayslipS =============
+    function EmployeePayslipsView({ user, email, employeeID }) {
+      const [loading, setLoading] = useState(true);
+      const [Payslips, setPayslips] = useState([]);
+      const [printPayslip, setPrintPayslip] = useState(null);
+      const [downloadPayslip, setDownloadPayslip] = useState(null);
+      const tableInstanceRef = useRef(null);
+
+      useEffect(() => {
+        loadPayslips();
+        return () => {
+          if (tableInstanceRef.current) {
+            try {
+              tableInstanceRef.current.destroy();
+              tableInstanceRef.current = null;
+            } catch (e) {
+              console.log('DataTable cleanup error:', e);
+            }
+          }
+        };
+      }, [employeeID, email]);
+
+      useEffect(() => {
+        if (printPayslip) {
+          setTimeout(() => {
+            window.print();
+            setPrintPayslip(null);
+          }, 500);
+        }
+      }, [printPayslip]);
+
+      useEffect(() => {
+        if (downloadPayslip) {
+          setTimeout(() => {
+            const PayslipElement = document.querySelector('.Payslip-container');
+            if (!PayslipElement) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'Payslip not found' });
+              setDownloadPayslip(null);
+              return;
+            }
+
+            Swal.fire({
+              title: 'Generating PDF...',
+              text: 'Please wait',
+              allowOutsideClick: false,
+              didOpen: () => Swal.showLoading()
+            });
+
+            const opt = {
+              margin: [5, 12, 3, 12],
+              filename: `Payslip_${downloadPayslip?.EmployeeName || 'Employee'}_${downloadPayslip?.PayMonth?.toUpperCase() || 'Unknown'}_${downloadPayslip?.PayYear || ''}.pdf`,
+              image: { type: 'jpeg', quality: 0.98 },
+              html2canvas: { scale: 2, useCORS: true, logging: false, letterRendering: true },
+              jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            html2pdf().set(opt).from(PayslipElement).save().then(() => {
+              Swal.fire({ icon: 'success', title: 'Success!', text: 'PDF downloaded successfully', timer: 2000, showConfirmButton: false });
+              setDownloadPayslip(null);
+            }).catch((err) => {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to generate PDF: ' + err.message });
+              setDownloadPayslip(null);
+            });
+          }, 500);
+        }
+      }, [downloadPayslip]);
+
+      const loadPayslips = () => {
+        setLoading(true);
+        google.script.run
+          .withSuccessHandler((result) => {
+            setLoading(false);
+            if (!result) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to load Payslips.' });
+              return;
+            }
+            if (result.success) {
+              setPayslips(result.data);
+              initializeDataTable(result.data);
+            } else {
+              Swal.fire({ icon: 'error', title: 'Error', text: result.message });
+            }
+          })
+          .withFailureHandler((err) => {
+            setLoading(false);
+            Swal.fire({ icon: 'error', title: 'Error', text: err.message });
+          })
+          .getEmployeeOwnPayslips(employeeID);
+      };
+
+      const initializeDataTable = (data) => {
+        if (tableInstanceRef.current) {
+          try {
+            tableInstanceRef.current.destroy();
+            tableInstanceRef.current = null;
+            $('#employeePayslipsTable').empty();
+          } catch (e) {
+            console.log('DataTable destroy error:', e);
+          }
+        }
+
+        setTimeout(() => {
+          try {
+            const table = $('#employeePayslipsTable').DataTable({
+              data: data,
+              destroy: true,
+              columns: [
+                {
+                  data: 'PayMonth',
+                  title: 'Month',
+                  render: (d) => {
+                    const monthColors = {
+                      'January': '#3498db', 'February': '#9b59b6', 'March': '#2ecc71',
+                      'April': '#f1c40f', 'May': '#e74c3c', 'June': '#1abc9c',
+                      'July': '#e67e22', 'August': '#34495e', 'September': '#16a085',
+                      'October': '#d35400', 'November': '#8e44ad', 'December': '#c0392b'
+                    };
+                    const color = monthColors[d] || '#7f8c8d';
+                    return `<span class="cell-month" style="background: ${color}; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600;">${d}</span>`;
+                  }
+                },
+                {
+                  data: 'PayYear',
+                  title: 'Year',
+                  render: (d) => {
+                    const currentYear = new Date().getFullYear();
+                    const isCurrentYear = parseInt(d) === currentYear;
+                    return `<span class="${isCurrentYear ? 'cell-year-current' : 'cell-year-past'}">${d}</span>`;
+                  }
+                },
+                {
+                  data: 'PayDate',
+                  title: 'Pay Date',
+                  render: (d) => {
+                    if (!d) return '<span class="cell-date-empty">-</span>';
+                    const date = new Date(d);
+                    const formatted = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: '2-digit' });
+                    return `<span class="cell-date"><i class="fas fa-calendar-check" style="color: #3498db; margin-right: 6px;"></i>${formatted}</span>`;
+                  }
+                },
+                {
+                  data: 'GrossEarnings',
+                  title: 'Gross',
+                  render: (d) => {
+                    const amount = parseFloat(d);
+                    let colorClass = 'cell-gross-low';
+                    if (amount >= 1000) colorClass = 'cell-gross-high';
+                    else if (amount >= 500) colorClass = 'cell-gross-medium';
+                    return `<span class="cell-amount ${colorClass}"><i class="fas fa-plus-circle" style="margin-right: 4px;"></i>$${amount.toFixed(2)}</span>`;
+                  }
+                },
+                {
+                  data: 'TotalDeductions',
+                  title: 'Deductions',
+                  render: (d) => {
+                    const amount = parseFloat(d);
+                    let colorClass = 'cell-deduction-low';
+                    if (amount >= 300) colorClass = 'cell-deduction-high';
+                    else if (amount >= 150) colorClass = 'cell-deduction-medium';
+                    return `<span class="cell-amount ${colorClass}"><i class="fas fa-minus-circle" style="margin-right: 4px;"></i>$${amount.toFixed(2)}</span>`;
+                  }
+                },
+                {
+                  data: 'NetPay',
+                  title: 'Net Pay',
+                  render: (d) => {
+                    const amount = parseFloat(d);
+                    let colorClass = 'cell-amount-low';
+                    if (amount >= 1000) colorClass = 'cell-amount-high';
+                    else if (amount >= 500) colorClass = 'cell-amount-medium';
+                    return `<span class="cell-amount ${colorClass}"><i class="fas fa-wallet" style="margin-right: 4px;"></i><strong>$${amount.toFixed(2)}</strong></span>`;
+                  }
+                },
+                {
+                  data: 'Status',
+                  title: 'Status',
+                  render: (d) => {
+                    if (d === 'Paid') {
+                      return `<span class="cell-status-paid"><i class="fas fa-check-circle"></i> ${d}</span>`;
+                    } else {
+                      return `<span class="cell-status-pending"><i class="fas fa-clock"></i> ${d}</span>`;
+                    }
+                  }
+                },
+                {
+                  data: null,
+                  title: 'Actions',
+                  orderable: false,
+                  render: () => `
+                    <button class="action-icon print-icon" data-action="print" title="Print Payslip">
+                      <i class="fas fa-print"></i>
+                    </button>
+                    <button class="action-icon pdf-icon" data-action="download" title="Download PDF">
+                      <i class="fas fa-file-pdf"></i>
+                    </button>
+                  `
+                }
+              ],
+              pageLength: 10,
+              lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
+              responsive: true,
+              order: [[1, 'desc'], [0, 'desc']]
+            });
+
+            $('#employeePayslipsTable').off('click', '.action-icon');
+            $('#employeePayslipsTable').on('click', '.action-icon', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              const action = $(this).data('action');
+              // Handle both regular rows and responsive child rows
+              let $row = $(this).closest('tr');
+              if ($row.hasClass('child')) {
+                $row = $row.prev('tr');
+              }
+              const rowData = table.row($row).data();
+              if (!rowData) {
+                console.log('No row data found');
+                return;
+              }
+              if (action === 'print') {
+                setPrintPayslip(rowData);
+              } else if (action === 'download') {
+                setDownloadPayslip(rowData);
+              }
+            });
+
+            tableInstanceRef.current = table;
+          } catch (e) {
+            console.error('DataTable initialization error:', e);
+            Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to initialize table: ' + e.message });
+          }
+        }, 150);
+      };
+
+      return (
+        <div className="data-section">
+          <div className="section-header">
+            <h2><i className="fas fa-file-invoice-dollar"></i> My Payslips</h2>
+          </div>
+
+          {Payslips.length === 0 && !loading && (
+            <div className="empty-state">
+              <i className="fas fa-folder-open"></i>
+              <p>No Payslips found</p>
+            </div>
+          )}
+
+          {loading && <TableSkeleton rows={5} columns={7} />}
+          <div style={{ display: loading ? 'none' : 'block' }} className="no-print">
+            <table id="employeePayslipsTable" className="display" style={{ width: '100%' }}></table>
+          </div>
+
+          {printPayslip && <PayslipPrint Payslip={printPayslip} />}
+          {downloadPayslip && <PayslipPrint Payslip={downloadPayslip} />}
+        </div>
+      );
+    }
+
+    // ============= DASHBOARD VIEW =============
+</script>

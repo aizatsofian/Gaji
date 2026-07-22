@@ -1,0 +1,180 @@
+<script type="text/babel">
+    function PayslipPrint({ Payslip }) {
+      const grossEarnings = parseFloat(Payslip.GrossEarnings || 0);
+      const totalDeductions = parseFloat(Payslip.TotalDeductions || 0);
+      const netPay = parseFloat(Payslip.NetPay || 0);
+
+      // Format ISO date for display
+      const formatPayDate = (isoString) => {
+        if (!isoString) return '';
+        const date = new Date(isoString);
+        return date.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        });
+      };
+
+      return (
+        <div className="Payslip-container">
+          <div className="Payslip-watermark"></div>
+          <div className="Payslip-content">
+            <div className="Payslip-header">
+              <div className="company-info">
+                <img
+                  src="https://raw.githubusercontent.com/aizatsofian/peroduaimage/main/LOGO.jpg"
+                  alt="Logo"
+                  className="company-logo"
+                />
+                <div className="company-details">
+                  <h1>Dr Excels</h1>
+                  <p>Sistem Pengurusan Gaji</p>
+                </div>
+              </div>
+              <div className="Payslip-title">
+                <p>Payslip of the Month</p>
+                <h2>{Payslip.PayMonth?.toUpperCase() || ''} {Payslip.PayYear}</h2>
+              </div>
+            </div>
+
+            <div className="Payslip-top-section">
+              <div className="employee-summary">
+                <h3>EMPLOYEE SUMMARY</h3>
+                <div className="summary-row">
+                  <span className="label">Employee Name</span>
+                  <span className="value">: {Payslip.EmployeeName}</span>
+                </div>
+                <div className="summary-row">
+                  <span className="label">Employee ID</span>
+                  <span className="value">: {Payslip.EmployeeID}</span>
+                </div>
+                <div className="summary-row">
+                  <span className="label">Pay Period</span>
+                  <span className="value">: {Payslip.PayMonth} {Payslip.PayYear}</span>
+                </div>
+                <div className="summary-row">
+                  <span className="label">Pay Date</span>
+                  <span className="value">: {formatPayDate(Payslip.PayDate)}</span>
+                </div>
+              </div>
+
+              <div className="net-pay-summary">
+                <div className="net-pay-amount">${netPay.toFixed(2)}</div>
+                <div className="net-pay-label">Employee Net Pay</div>
+                <div className="summary-row">
+                  <span className="label">Paid Days:</span>
+                  <span className="value">{Payslip.PaidDays}</span>
+                </div>
+                <div className="summary-row">
+                  <span className="label">LOP Days:</span>
+                  <span className="value">{Payslip.LOPDays}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="payment-info">
+                <h3>PAYMENT DETAILS</h3>
+                <p>Payment made to employee's bank account.</p>
+              </div>
+
+              <div className="earnings-deductions">
+                <div className="combined-table-header">
+                  <div className="table-header-section">
+                    <span>EARNINGS</span>
+                    <span>AMOUNT</span>
+                  </div>
+                  <div className="table-header-section">
+                    <span>DEDUCTIONS</span>
+                    <span>AMOUNT</span>
+                  </div>
+                </div>
+                <table className="Payslip-combined-table">
+                  <tbody>
+                    <tr>
+                      <td>Basic</td>
+                      <td className="table-divider">${parseFloat(Payslip.Basic || 0).toFixed(2)}</td>
+                      <td>LOP Days</td>
+                      <td>${parseFloat(Payslip.LOPDeduction || 0).toFixed(2)}</td>
+                    </tr>
+                    <tr>
+                      <td>Service Charge</td>
+                      <td className="table-divider">${parseFloat(Payslip.ServiceCharge || 0).toFixed(2)}</td>
+                      <td>Advance Payment</td>
+                      <td>${parseFloat(Payslip.AdvancePayment || 0).toFixed(2)}</td>
+                    </tr>
+                    <tr>
+                      <td>Incentive</td>
+                      <td className="table-divider">${parseFloat(Payslip.Incentive || 0).toFixed(2)}</td>
+                      <td>Shop Charges</td>
+                      <td>${parseFloat(Payslip.ShopCharges || 0).toFixed(2)}</td>
+                    </tr>
+                    <tr>
+                      <td>Bill Tips</td>
+                      <td className="table-divider">${parseFloat(Payslip.BillTips || 0).toFixed(2)}</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                    <tr>
+                      <td>Sales Bonus</td>
+                      <td className="table-divider">${parseFloat(Payslip.SalesBonus || 0).toFixed(2)}</td>
+                      <td>&nbsp;</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                    <tr className="total-row">
+                      <td>Gross Earnings</td>
+                      <td className="table-divider">${grossEarnings.toFixed(2)}</td>
+                      <td>Total Deductions</td>
+                      <td>${totalDeductions.toFixed(2)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <div className="net-payable">
+                  <div>
+                    <div className="label">TOTAL NET PAYABLE</div>
+                    <div className="sublabel">Gross Earnings - Total Deductions</div>
+                  </div>
+                  <div className="amount">${netPay.toFixed(2)}</div>
+                </div>
+              </div>
+
+            <div className="signatures">
+              <div className="signature-block">
+                <div className="signature-line"></div>
+                <div className="signature-name">{Payslip.EmployeeName}</div>
+                <div className="signature-title">Employee Signature</div>
+              </div>
+              <div className="signature-block">
+                <div className="signature-line"></div>
+                <div className="signature-name">{Payslip.Position || 'N/A'}</div>
+                <div className="signature-title">Designation</div>
+              </div>
+              <div className="signature-block">
+                <div className="signature-line">
+                  <svg width="150" height="45" style={{ marginBottom: '-8px' }}>
+                    <text x="10" y="30" fontFamily="Brush Script MT, cursive" fontSize="24" fill="#1a5280" fontStyle="italic">Dr Excels</text>
+                  </svg>
+                </div>
+                <div className="signature-name">Dr Excels</div>
+                <div className="signature-title">Employer Signature</div>
+              </div>
+            </div>
+
+            <svg className="company-stamp" width="110" height="110" viewBox="0 0 110 110">
+              <circle cx="55" cy="55" r="52" fill="none" stroke="#1a5280" strokeWidth="3" />
+              <circle cx="55" cy="55" r="42" fill="none" stroke="#1a5280" strokeWidth="1.5" />
+              <text x="55" y="45" textAnchor="middle" fontFamily="Arial" fontSize="11" fontWeight="bold" fill="#1a5280">Dr Excels</text>
+              <text x="55" y="65" textAnchor="middle" fontFamily="Arial" fontSize="8" fill="#1a5280">C6119208</text>
+            </svg>
+
+            <div className="Payslip-footer">
+              <p>This is a Sistem generated Payslip. Any Queries should be notified within 24 hours</p>
+              <p>email: contact@rameezscripts.com / phone: +92 322 4083545</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============= USERS VIEW =============
+</script>

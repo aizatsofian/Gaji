@@ -1,0 +1,211 @@
+<script type="text/babel">
+    function DashboardView({ user, role }) {
+      const [loading, setLoading] = useState(true);
+      const [stats, setStats] = useState(null);
+      const chartRef = useRef(null);
+      const chartInstanceRef = useRef(null);
+
+      useEffect(() => {
+        // Load dashboard stats
+        google.script.run
+          .withSuccessHandler((result) => {
+            setLoading(false);
+            if (!result) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'No data received. Please run setupDemoData() in Code.gs first.' });
+              return;
+            }
+            if (result.success) {
+              setStats(result);
+              // Initialize chart after stats are loaded
+              setTimeout(() => initChart(result), 100);
+            } else {
+              Swal.fire({ icon: 'error', title: 'Error', text: result.message || 'Failed to load dashboard stats' });
+            }
+          })
+          .withFailureHandler((err) => {
+            setLoading(false);
+            Swal.fire({ icon: 'error', title: 'Error', text: 'Connection error: ' + err.message });
+          })
+          .getDashboardStats();
+
+        // Cleanup chart on unmount
+        return () => {
+          if (chartInstanceRef.current) {
+            chartInstanceRef.current.destroy();
+            chartInstanceRef.current = null;
+          }
+        };
+      }, []);
+
+      const initChart = (data) => {
+        // Destroy existing chart if any
+        if (chartInstanceRef.current) {
+          chartInstanceRef.current.destroy();
+        }
+
+        const ctx = chartRef.current;
+        if (!ctx) return;
+
+        chartInstanceRef.current = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: ['Employees', 'Payslips', 'Paid', 'Pending'],
+            datasets: [
+              {
+                label: 'Active/Paid',
+                data: [
+                  data.activeEmployees || 0,
+                  data.totalPayslips || 0,
+                  data.paidPayslips || 0,
+                  0
+                ],
+                backgroundColor: 'rgba(0, 116, 217, 0.8)',
+                borderColor: 'rgba(0, 116, 217, 1)',
+                borderWidth: 2,
+                borderRadius: 8,
+                borderSkipped: false,
+              },
+              {
+                label: 'Inactive/Pending',
+                data: [
+                  data.inactiveEmployees || 0,
+                  0,
+                  0,
+                  data.pendingPayslips || 0
+                ],
+                backgroundColor: 'rgba(234, 67, 53, 0.8)',
+                borderColor: 'rgba(234, 67, 53, 1)',
+                borderWidth: 2,
+                borderRadius: 8,
+                borderSkipped: false,
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'top',
+                labels: {
+                  font: { size: 13, weight: '600' },
+                  color: '#333',
+                  padding: 20,
+                  usePointStyle: true,
+                  pointStyle: 'rectRounded'
+                }
+              },
+              title: {
+                display: false
+              },
+              tooltip: {
+                backgroundColor: 'rgba(0, 31, 63, 0.9)',
+                titleFont: { size: 14, weight: '600' },
+                bodyFont: { size: 13 },
+                padding: 12,
+                cornerRadius: 8
+              }
+            },
+            scales: {
+              x: {
+                grid: { display: false },
+                ticks: {
+                  font: { size: 12, weight: '500' },
+                  color: '#666'
+                }
+              },
+              y: {
+                beginAtZero: true,
+                grid: {
+                  color: 'rgba(0, 0, 0, 0.05)',
+                  drawBorder: false
+                },
+                ticks: {
+                  font: { size: 12 },
+                  color: '#666',
+                  stepSize: 1
+                }
+              }
+            }
+          }
+        });
+      };
+
+      if (loading) {
+        return (
+          <div>
+            <div className="dashboard-grid-3">
+              {[...Array(6)].map((_, i) => (
+                <DashboardCardSkeleton key={i} />
+              ))}
+            </div>
+            <div className="dashboard-grid-1" style={{ marginTop: '20px' }}>
+              <ChartSkeleton />
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div>
+          {/* Stats Cards */}
+          <div className="dashboard-grid-3">
+            <div className="stat-card">
+              <div className="stat-card-icon">
+                <i className="fas fa-users"></i>
+              </div>
+              <div className="stat-card-value">{stats?.totalEmployees || 0}</div>
+              <div className="stat-card-label">Total Employees</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-card-icon">
+                <i className="fas fa-user-check"></i>
+              </div>
+              <div className="stat-card-value">{stats?.activeEmployees || 0}</div>
+              <div className="stat-card-label">Active Employees</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-card-icon">
+                <i className="fas fa-file-invoice-dollar"></i>
+              </div>
+              <div className="stat-card-value">{stats?.totalPayslips || 0}</div>
+              <div className="stat-card-label">Total Payslips</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-card-icon">
+                <i className="fas fa-dollar-sign"></i>
+              </div>
+              <div className="stat-card-value">${stats?.totalPayout || 0}</div>
+              <div className="stat-card-label">Total Payout</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-card-icon">
+                <i className="fas fa-check-circle"></i>
+              </div>
+              <div className="stat-card-value">{stats?.paidPayslips || 0}</div>
+              <div className="stat-card-label">Paid Payslips</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-card-icon">
+                <i className="fas fa-clock"></i>
+              </div>
+              <div className="stat-card-value">{stats?.pendingPayslips || 0}</div>
+              <div className="stat-card-label">Pending Payslips</div>
+            </div>
+          </div>
+
+          {/* Bar Chart */}
+          <div className="dashboard-grid-1" style={{ marginTop: '20px' }}>
+            <div className="chart-card">
+              <h3><i className="fas fa-chart-bar"></i> Overview Statistics</h3>
+              <div className="chart-container">
+                <canvas ref={chartRef}></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============= EMPLOYEES VIEW =============
+</script>

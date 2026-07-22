@@ -1,0 +1,1300 @@
+<script type="text/babel">
+    function PayslipsView({ user, role }) {
+      const [loading, setLoading] = useState(true);
+      const [showModal, setShowModal] = useState(false);
+      const [editingPayslip, setEditingPayslip] = useState(null);
+      const [printPayslip, setPrintPayslip] = useState(null);
+      const [downloadPayslip, setDownloadPayslip] = useState(null);
+      const [Payslips, setPayslips] = useState([]);
+      const tableInstanceRef = useRef(null);
+
+      // Filter states
+      const [filters, setFilters] = useState({
+        dateFrom: '',
+        dateTo: '',
+        status: '',
+        employeeName: '',
+        payMonth: '',
+        payYear: ''
+      });
+      const [uniqueEmployees, setUniqueEmployees] = useState([]);
+      const [uniqueMonths, setUniqueMonths] = useState([]);
+      const [uniqueYears, setUniqueYears] = useState([]);
+
+      // New feature states
+      const [showBulkEmailModal, setShowBulkEmailModal] = useState(false);
+      const [showReportModal, setShowReportModal] = useState(false);
+
+      useEffect(() => {
+        loadPayslips();
+        return () => {
+          if (tableInstanceRef.current) {
+            try {
+              tableInstanceRef.current.destroy();
+              tableInstanceRef.current = null;
+            } catch (e) {
+              console.log('DataTable cleanup error:', e);
+            }
+          }
+        };
+      }, []);
+
+      // Auto-apply filters when changed
+      useEffect(() => {
+        if (tableInstanceRef.current && Payslips.length > 0) {
+          applyFilters();
+        }
+      }, [filters]);
+
+      useEffect(() => {
+        if (printPayslip) {
+          setTimeout(() => {
+            window.print();
+            setPrintPayslip(null);
+          }, 500);
+        }
+      }, [printPayslip]);
+
+      useEffect(() => {
+        if (downloadPayslip) {
+          setTimeout(() => {
+            const PayslipElement = document.querySelector('.Payslip-container');
+            if (!PayslipElement) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'Payslip not found' });
+              setDownloadPayslip(null);
+              return;
+            }
+
+            Swal.fire({
+              title: 'Generating PDF...',
+              text: 'Please wait',
+              allowOutsideClick: false,
+              didOpen: () => {
+                Swal.showLoading();
+              }
+            });
+
+            const opt = {
+              margin: [5, 12, 3, 12],
+              filename: `Payslip_${downloadPayslip?.EmployeeName || 'Employee'}_${downloadPayslip?.PayMonth || 'Unknown'}.pdf`,
+              image: { type: 'jpeg', quality: 0.98 },
+              html2canvas: {
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                letterRendering: true
+              },
+              jsPDF: {
+                unit: 'mm',
+                format: 'a4',
+                orientation: 'portrait'
+              }
+            };
+
+            html2pdf().set(opt).from(PayslipElement).save().then(() => {
+              Swal.fire({
+                icon: 'success',
+                title: 'Success!',
+                text: 'PDF downloaded successfully',
+                timer: 2000,
+                showConfirmButton: false
+              });
+              setDownloadPayslip(null);
+            }).catch((err) => {
+              Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'Failed to generate PDF: ' + err.message
+              });
+              setDownloadPayslip(null);
+            });
+          }, 500);
+        }
+      }, [downloadPayslip]);
+
+      const loadPayslips = () => {
+        setLoading(true);
+        google.script.run
+          .withSuccessHandler((result) => {
+            setLoading(false);
+            if (!result) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'No data received. Please run setupDemoData() in Code.gs first.' });
+              return;
+            }
+            if (result.success) {
+              setPayslips(result.data);
+
+              // Extract unique values for filter dropdowns
+              const employees = [...new Set(result.data.map(p => p.EmployeeName).filter(Boolean))];
+              const months = [...new Set(result.data.map(p => p.PayMonth).filter(Boolean))];
+              const years = [...new Set(result.data.map(p => p.PayYear).filter(Boolean))].sort((a, b) => b - a);
+              setUniqueEmployees(employees);
+              setUniqueMonths(months);
+              setUniqueYears(years);
+
+              initializeDataTable(result.data);
+            } else {
+              Swal.fire({ icon: 'error', title: 'Error', text: result.message });
+            }
+          })
+          .withFailureHandler((err) => {
+            setLoading(false);
+            Swal.fire({ icon: 'error', title: 'Error', text: err.message });
+          })
+          .getPayslips(user, role);
+      };
+
+      const applyFilters = () => {
+        if (!tableInstanceRef.current) return;
+
+        // Clear previous custom search
+        $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(fn => !fn.isPayslipFilter);
+
+        // Add date range filter
+        const dateFilter = function(settings, data, dataIndex) {
+          if (settings.nTable.id !== 'PayslipsTable') return true;
+
+          const Payslip = Payslips[dataIndex];
+          if (!Payslip) return true;
+
+          const payDate = Payslip.PayDate ? new Date(Payslip.PayDate) : null;
+          const fromDate = filters.dateFrom ? new Date(filters.dateFrom) : null;
+          const toDate = filters.dateTo ? new Date(filters.dateTo + 'T23:59:59') : null;
+
+          if (fromDate && payDate && payDate < fromDate) return false;
+          if (toDate && payDate && payDate > toDate) return false;
+          return true;
+        };
+        dateFilter.isPayslipFilter = true;
+        $.fn.dataTable.ext.search.push(dateFilter);
+
+        // Column filters
+        tableInstanceRef.current.columns().search('');
+        if (filters.status) tableInstanceRef.current.column(7).search('^' + filters.status + '$', true, false);
+        if (filters.employeeName) tableInstanceRef.current.column(2).search(filters.employeeName);
+        if (filters.payMonth) tableInstanceRef.current.column(3).search('^' + filters.payMonth + '$', true, false);
+        if (filters.payYear) tableInstanceRef.current.column(4).search('^' + filters.payYear + '$', true, false);
+
+        tableInstanceRef.current.draw();
+      };
+
+      const clearFilters = () => {
+        setFilters({ dateFrom: '', dateTo: '', status: '', employeeName: '', payMonth: '', payYear: '' });
+        if (tableInstanceRef.current) {
+          $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter(fn => !fn.isPayslipFilter);
+          tableInstanceRef.current.columns().search('').draw();
+        }
+      };
+
+      const handleStatusUpdate = (Payslip, newStatus) => {
+        Swal.fire({
+          icon: 'question',
+          title: `Mark as ${newStatus}?`,
+          html: `Update status for <strong>${Payslip.EmployeeName}</strong> (${Payslip.PayMonth} ${Payslip.PayYear}) to <strong>${newStatus}</strong>?`,
+          showCancelButton: true,
+          confirmButtonColor: newStatus === 'Paid' ? '#34a853' : '#fbbc04',
+          confirmButtonText: `<i class="fas fa-check"></i> Yes, ${newStatus}`,
+          cancelButtonText: 'Cancel'
+        }).then((result) => {
+          if (result.isConfirmed) {
+            google.script.run
+              .withSuccessHandler((r) => {
+                if (!r) {
+                  Swal.fire({ icon: 'error', title: 'Error', text: 'No response from server.' });
+                  return;
+                }
+                if (r.success) {
+                  Swal.fire({ icon: 'success', title: 'Updated!', text: r.message, timer: 2000, showConfirmButton: false });
+                  setTimeout(() => loadPayslips(), 100);
+                } else {
+                  Swal.fire({ icon: 'error', title: 'Error', text: r.message });
+                }
+              })
+              .withFailureHandler((err) => Swal.fire({ icon: 'error', title: 'Error', text: err.message }))
+              .updatePayslipStatus(Payslip.ID, newStatus, user, role);
+          }
+        });
+      };
+
+      const initializeDataTable = (data) => {
+        if (tableInstanceRef.current) {
+          try {
+            tableInstanceRef.current.destroy();
+            tableInstanceRef.current = null;
+            $('#PayslipsTable').empty();
+          } catch (e) {
+            console.log('DataTable destroy error:', e);
+          }
+        }
+
+        setTimeout(() => {
+          try {
+            const table = $('#PayslipsTable').DataTable({
+              data: data,
+              destroy: true,
+              columns: [
+                { data: 'ID', title: 'ID', render: (d) => `<span class="cell-id">${d}</span>` },
+                { data: 'EmployeeID', title: 'Employee ID', render: (d) => `<span class="cell-badge cell-badge-primary">${d}</span>` },
+                { data: 'EmployeeName', title: 'Employee Name', render: (d) => `<span class="cell-employee-name">${d}</span>` },
+                {
+                  data: 'PayMonth',
+                  title: 'Month',
+                  render: (d) => {
+                    const monthColors = {
+                      'January': '#3498db', 'February': '#9b59b6', 'March': '#2ecc71',
+                      'April': '#f1c40f', 'May': '#e74c3c', 'June': '#1abc9c',
+                      'July': '#e67e22', 'August': '#34495e', 'September': '#16a085',
+                      'October': '#d35400', 'November': '#8e44ad', 'December': '#c0392b'
+                    };
+                    const color = monthColors[d] || '#7f8c8d';
+                    return `<span class="cell-month" style="background: ${color}; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600;">${d}</span>`;
+                  }
+                },
+                {
+                  data: 'PayYear',
+                  title: 'Year',
+                  render: (d) => {
+                    const currentYear = new Date().getFullYear();
+                    const isCurrentYear = parseInt(d) === currentYear;
+                    return `<span class="cell-year ${isCurrentYear ? 'cell-year-current' : ''}">${d}</span>`;
+                  }
+                },
+                {
+                  data: 'PayDate',
+                  title: 'Pay Date',
+                  render: (d) => {
+                    if (!d) return '<span class="cell-na">-</span>';
+                    const date = new Date(d);
+                    return `<span class="cell-date">${date.toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: '2-digit'
+                    })}</span>`;
+                  }
+                },
+                {
+                  data: 'NetPay',
+                  title: 'Net Pay',
+                  render: (d) => {
+                    const amount = parseFloat(d);
+                    let colorClass = 'cell-amount-low';
+                    if (amount >= 1000) colorClass = 'cell-amount-high';
+                    else if (amount >= 500) colorClass = 'cell-amount-medium';
+                    return `<span class="cell-amount ${colorClass}">$${amount.toFixed(2)}</span>`;
+                  }
+                },
+                {
+                  data: 'Status',
+                  title: 'Status',
+                  render: (d) => `<span class="status-badge ${d === 'Paid' ? 'status-paid' : 'status-pending'}"><i class="fas ${d === 'Paid' ? 'fa-check-circle' : 'fa-clock'}"></i> ${d}</span>`
+                },
+                {
+                  data: null,
+                  title: 'Actions',
+                  orderable: false,
+                  render: (d, t, row) => `
+                    <button class="action-icon status-paid-icon ${row.Status === 'Paid' ? 'active' : ''}" data-action="status-paid" title="Mark as Paid">
+                      <i class="fas fa-check-circle"></i>
+                    </button>
+                    <button class="action-icon status-pending-icon ${row.Status === 'Pending' ? 'active' : ''}" data-action="status-pending" title="Mark as Pending">
+                      <i class="fas fa-clock"></i>
+                    </button>
+                    <button class="action-icon print-icon" data-action="print" title="Print Payslip">
+                      <i class="fas fa-print"></i>
+                    </button>
+                    <button class="action-icon pdf-icon" data-action="download" title="Download PDF">
+                      <i class="fas fa-file-pdf"></i>
+                    </button>
+                    ${role === 'Admin' ? `<button class="action-icon email-icon" data-action="email" title="Send Email">
+                      <i class="fas fa-envelope"></i>
+                    </button>` : ''}
+                    <button class="action-icon edit-icon" data-action="edit" title="Edit">
+                      <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="action-icon delete-icon" data-action="delete" title="Delete">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  `
+                }
+              ],
+              pageLength: 10,
+              lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+              responsive: true,
+              dom: 'Blfrtip',
+              buttons: [
+                { extend: 'csv', text: '<i class="fas fa-file-csv"></i> CSV', exportOptions: { columns: ':not(:last-child)' } },
+                { extend: 'pdf', text: '<i class="fas fa-file-pdf"></i> PDF', exportOptions: { columns: ':not(:last-child)' } },
+                { extend: 'print', text: '<i class="fas fa-print"></i> Print', exportOptions: { columns: ':not(:last-child)' } }
+              ],
+              order: [[0, 'desc']]
+            });
+
+            $('#PayslipsTable').off('click', '.action-icon');
+            $('#PayslipsTable').on('click', '.action-icon', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              const action = $(this).data('action');
+              // Handle both regular rows and responsive child rows
+              let $row = $(this).closest('tr');
+              if ($row.hasClass('child')) {
+                $row = $row.prev('tr');
+              }
+              const rowData = table.row($row).data();
+              if (!rowData) {
+                console.log('No row data found');
+                return;
+              }
+              if (action === 'status-paid') {
+                handleStatusUpdate(rowData, 'Paid');
+              } else if (action === 'status-pending') {
+                handleStatusUpdate(rowData, 'Pending');
+              } else if (action === 'print') {
+                setPrintPayslip(rowData);
+              } else if (action === 'download') {
+                setDownloadPayslip(rowData);
+              } else if (action === 'email') {
+                handleSendEmail(rowData);
+              } else if (action === 'edit') {
+                setEditingPayslip(rowData);
+                setShowModal(true);
+              } else if (action === 'delete') {
+                handleDelete(rowData);
+              }
+            });
+
+            tableInstanceRef.current = table;
+          } catch (e) {
+            console.error('DataTable initialization error:', e);
+            Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to initialize table: ' + e.message });
+          }
+        }, 150);
+      };
+
+      const handleSave = (PayslipData) => {
+        const action = editingPayslip ? 'updatePayslip' : 'addPayslip';
+        const params = editingPayslip ? [editingPayslip.ID, PayslipData, user, role] : [PayslipData, user];
+
+        google.script.run
+          .withSuccessHandler((result) => {
+            if (!result) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'No response from server. Please try again.' });
+              return;
+            }
+            if (result.success) {
+              setShowModal(false);
+              setEditingPayslip(null);
+              Swal.fire({ icon: 'success', title: 'Success!', text: result.message, timer: 2000, showConfirmButton: false });
+              setTimeout(() => loadPayslips(), 100);
+            } else {
+              Swal.fire({ icon: 'error', title: 'Error', text: result.message });
+            }
+          })
+          .withFailureHandler((err) => Swal.fire({ icon: 'error', title: 'Error', text: err.message }))
+          [action](...params);
+      };
+
+      const handleDelete = (Payslip) => {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Delete Payslip?',
+          text: 'This cannot be undone',
+          showCancelButton: true,
+          confirmButtonColor: '#ea4335',
+          confirmButtonText: 'Delete'
+        }).then((result) => {
+          if (result.isConfirmed) {
+            google.script.run
+              .withSuccessHandler((r) => {
+                if (!r) {
+                  Swal.fire({ icon: 'error', title: 'Error', text: 'No response from server. Please try again.' });
+                  return;
+                }
+                if (r.success) {
+                  Swal.fire({ icon: 'success', text: r.message, timer: 2000, showConfirmButton: false });
+                  setTimeout(() => loadPayslips(), 100);
+                } else {
+                  Swal.fire({ icon: 'error', title: 'Error', text: r.message });
+                }
+              })
+              .withFailureHandler((err) => Swal.fire({ icon: 'error', title: 'Error', text: err.message }))
+              .deletePayslip(Payslip.ID, user, role);
+          }
+        });
+      };
+
+      const handleSendEmail = (Payslip) => {
+        Swal.fire({
+          icon: 'question',
+          title: 'Send Payslip Email?',
+          html: `Send Payslip for <strong>${Payslip.EmployeeName}</strong> (${Payslip.PayMonth} ${Payslip.PayYear}) to their registered email?`,
+          showCancelButton: true,
+          confirmButtonColor: '#001f3f',
+          confirmButtonText: '<i class="fas fa-envelope"></i> Send Email',
+          cancelButtonText: 'Cancel'
+        }).then((result) => {
+          if (result.isConfirmed) {
+            Swal.fire({
+              title: 'Sending Email...',
+              text: 'Please wait while we send the Payslip email',
+              allowOutsideClick: false,
+              didOpen: () => Swal.showLoading()
+            });
+
+            google.script.run
+              .withSuccessHandler((r) => {
+                Swal.close();
+                if (!r) {
+                  Swal.fire({ icon: 'error', title: 'Error', text: 'No response from server. Please try again.' });
+                  return;
+                }
+                if (r.success) {
+                  Swal.fire({
+                    icon: 'success',
+                    title: 'Email Sent!',
+                    text: r.message,
+                    timer: 3000,
+                    showConfirmButton: false
+                  });
+                } else {
+                  Swal.fire({ icon: 'error', title: 'Error', text: r.message });
+                }
+              })
+              .withFailureHandler((err) => {
+                Swal.close();
+                Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to send email: ' + err.message });
+              })
+              .sendPayslipEmail(Payslip.ID, user, role);
+          }
+        });
+      };
+
+      const handleSearch = (employeeID) => {
+        if (!employeeID.trim()) {
+          Swal.fire({ icon: 'warning', text: 'Please enter an Employee ID' });
+          return;
+        }
+
+        Swal.fire({ title: 'Searching...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+        google.script.run
+          .withSuccessHandler((result) => {
+            Swal.close();
+            if (!result) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'No data received. Please run setupDemoData() in Code.gs first.' });
+              return;
+            }
+            if (result.success && result.data.length > 0) {
+              setPrintPayslip(result.data[0]);
+            } else {
+              Swal.fire({ icon: 'error', title: 'Not Found', text: result.message || 'No Payslips found for this Employee ID' });
+            }
+          })
+          .withFailureHandler((err) => {
+            Swal.close();
+            Swal.fire({ icon: 'error', title: 'Error', text: err.message });
+          })
+          .getPayslipByEmployeeID(employeeID);
+      };
+
+      return (
+        <div className="data-section">
+          <div className="section-header">
+            <h2>
+              <i className="fas fa-file-invoice-dollar"></i> Payslips
+            </h2>
+            <div className="section-header-buttons">
+              {role === 'Admin' && (
+                <>
+                  <button className="btn btn-primary" onClick={() => setShowBulkEmailModal(true)}>
+                    <i className="fas fa-envelope-open-text"></i> Bulk Email
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => setShowReportModal(true)}>
+                    <i className="fas fa-chart-bar"></i> Monthly Report
+                  </button>
+                </>
+              )}
+              <button className="btn btn-success" onClick={() => { setEditingPayslip(null); setShowModal(true); }}>
+                <i className="fas fa-plus"></i> Generate Payslip
+              </button>
+            </div>
+          </div>
+
+          <div className="search-box no-print">
+            <h3>
+              <i className="fas fa-search"></i> Search Payslip by Employee ID
+            </h3>
+            <div className="search-input-group">
+              <input
+                type="text"
+                id="searchEmployeeID"
+                placeholder="Enter Employee ID (e.g., MLV020)"
+              />
+              <button
+                className="btn btn-primary"
+                onClick={() => handleSearch(document.getElementById('searchEmployeeID').value)}
+              >
+                <i className="fas fa-search"></i> Search & Print
+              </button>
+            </div>
+          </div>
+
+          {/* Filters Section */}
+          {!loading && (
+            <div className="filters-section no-print">
+              <div className="filters-header">
+                <h3><i className="fas fa-filter"></i> Filters</h3>
+                <button className="btn btn-secondary btn-sm" onClick={clearFilters}>
+                  <i className="fas fa-times-circle"></i> Clear All
+                </button>
+              </div>
+              <div className="filters-grid">
+                <div className="filter-group">
+                  <label><i className="fas fa-calendar-alt"></i> Date From</label>
+                  <input
+                    type="date"
+                    value={filters.dateFrom}
+                    onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
+                    className="filter-input"
+                  />
+                </div>
+                <div className="filter-group">
+                  <label><i className="fas fa-calendar-alt"></i> Date To</label>
+                  <input
+                    type="date"
+                    value={filters.dateTo}
+                    onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
+                    className="filter-input"
+                  />
+                </div>
+                <div className="filter-group">
+                  <label><i className="fas fa-user"></i> Employee</label>
+                  <select
+                    value={filters.employeeName}
+                    onChange={(e) => setFilters({ ...filters, employeeName: e.target.value })}
+                    className="filter-input"
+                  >
+                    <option value="">All Employees</option>
+                    {uniqueEmployees.map((emp, idx) => (
+                      <option key={idx} value={emp}>{emp}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <label><i className="fas fa-calendar"></i> Month</label>
+                  <select
+                    value={filters.payMonth}
+                    onChange={(e) => setFilters({ ...filters, payMonth: e.target.value })}
+                    className="filter-input"
+                  >
+                    <option value="">All Months</option>
+                    {uniqueMonths.map((month, idx) => (
+                      <option key={idx} value={month}>{month}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <label><i className="fas fa-hashtag"></i> Year</label>
+                  <select
+                    value={filters.payYear}
+                    onChange={(e) => setFilters({ ...filters, payYear: e.target.value })}
+                    className="filter-input"
+                  >
+                    <option value="">All Years</option>
+                    {uniqueYears.map((year, idx) => (
+                      <option key={idx} value={year}>{year}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <label><i className="fas fa-check-circle"></i> Status</label>
+                  <select
+                    value={filters.status}
+                    onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                    className="filter-input"
+                  >
+                    <option value="">All Status</option>
+                    <option value="Paid">Paid</option>
+                    <option value="Pending">Pending</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {loading && <TableSkeleton rows={8} columns={8} />}
+          <div style={{ display: loading ? 'none' : 'block' }} className="no-print">
+            <table id="PayslipsTable" className="display" style={{ width: '100%' }}></table>
+          </div>
+          {showModal && (
+            <PayslipModal
+              Payslip={editingPayslip}
+              onClose={() => { setShowModal(false); setEditingPayslip(null); }}
+              onSave={handleSave}
+              user={user}
+              role={role}
+            />
+          )}
+          {printPayslip && <PayslipPrint Payslip={printPayslip} />}
+          {downloadPayslip && <PayslipPrint Payslip={downloadPayslip} />}
+          {showBulkEmailModal && (
+            <BulkEmailModal
+              onClose={() => setShowBulkEmailModal(false)}
+              user={user}
+              role={role}
+              uniqueMonths={uniqueMonths}
+              uniqueYears={uniqueYears}
+            />
+          )}
+          {showReportModal && (
+            <MonthlyReportModal
+              onClose={() => setShowReportModal(false)}
+              uniqueMonths={uniqueMonths}
+              uniqueYears={uniqueYears}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // ============= BULK EMAIL MODAL =============
+    function BulkEmailModal({ onClose, user, role, uniqueMonths, uniqueYears }) {
+      const [month, setMonth] = useState('');
+      const [year, setYear] = useState(new Date().getFullYear());
+      const [sending, setSending] = useState(false);
+
+      const handleSendBulkEmails = () => {
+        if (!month || !year) {
+          Swal.fire({ icon: 'warning', title: 'Missing Selection', text: 'Please select both month and year' });
+          return;
+        }
+
+        Swal.fire({
+          icon: 'question',
+          title: 'Send Bulk Emails?',
+          html: `This will send Payslip emails to <strong>all employees</strong> for <strong>${month} ${year}</strong>. Continue?`,
+          showCancelButton: true,
+          confirmButtonColor: '#001f3f',
+          confirmButtonText: '<i class="fas fa-paper-plane"></i> Send All',
+          cancelButtonText: 'Cancel'
+        }).then((result) => {
+          if (result.isConfirmed) {
+            setSending(true);
+            Swal.fire({
+              title: 'Sending Emails...',
+              html: 'Please wait while we send Payslip emails to all employees.',
+              allowOutsideClick: false,
+              didOpen: () => Swal.showLoading()
+            });
+
+            google.script.run
+              .withSuccessHandler((r) => {
+                setSending(false);
+                Swal.close();
+                if (!r) {
+                  Swal.fire({ icon: 'error', title: 'Error', text: 'No response from server.' });
+                  return;
+                }
+                if (r.success) {
+                  Swal.fire({
+                    icon: 'success',
+                    title: 'Bulk Emails Sent!',
+                    html: `<strong>${r.sent}</strong> emails sent successfully.<br>${r.failed > 0 ? `<span style="color:#ea4335"><strong>${r.failed}</strong> failed.</span>` : ''}`,
+                    timer: 4000
+                  });
+                  onClose();
+                } else {
+                  Swal.fire({ icon: 'error', title: 'Error', text: r.message });
+                }
+              })
+              .withFailureHandler((err) => {
+                setSending(false);
+                Swal.close();
+                Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to send emails: ' + err.message });
+              })
+              .sendBulkPayslipEmails(month, year, user, role);
+          }
+        });
+      };
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal" style={{ maxWidth: '500px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3><i className="fas fa-envelope-open-text"></i> Bulk Email Payslips</h3>
+              <button className="close-btn" onClick={onClose}><i className="fas fa-times"></i></button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: '20px', color: '#666' }}>
+                <i className="fas fa-info-circle"></i> Send Payslip emails to all employees for a specific month.
+              </p>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label><i className="fas fa-calendar"></i> Month *</label>
+                  <select value={month} onChange={(e) => setMonth(e.target.value)} required>
+                    <option value="">Select Month</option>
+                    {uniqueMonths.length > 0 ? uniqueMonths.map((m, idx) => (
+                      <option key={idx} value={m}>{m}</option>
+                    )) : (
+                      <>
+                        <option value="January">January</option>
+                        <option value="February">February</option>
+                        <option value="March">March</option>
+                        <option value="April">April</option>
+                        <option value="May">May</option>
+                        <option value="June">June</option>
+                        <option value="July">July</option>
+                        <option value="August">August</option>
+                        <option value="September">September</option>
+                        <option value="October">October</option>
+                        <option value="November">November</option>
+                        <option value="December">December</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label><i className="fas fa-hashtag"></i> Year *</label>
+                  <select value={year} onChange={(e) => setYear(e.target.value)} required>
+                    {uniqueYears.length > 0 ? uniqueYears.map((y, idx) => (
+                      <option key={idx} value={y}>{y}</option>
+                    )) : (
+                      <>
+                        <option value="2024">2024</option>
+                        <option value="2025">2025</option>
+                        <option value="2026">2026</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+              <div className="form-actions">
+                <button className="btn btn-primary" onClick={handleSendBulkEmails} disabled={sending}>
+                  {sending ? <><i className="fas fa-spinner fa-spin"></i> Sending...</> : <><i className="fas fa-paper-plane"></i> Send Bulk Emails</>}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={onClose}>
+                  <i className="fas fa-times"></i> Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============= MONTHLY REPORT MODAL =============
+    function MonthlyReportModal({ onClose, uniqueMonths, uniqueYears }) {
+      const [month, setMonth] = useState('');
+      const [year, setYear] = useState(new Date().getFullYear());
+      const [loading, setLoading] = useState(false);
+      const [reportData, setReportData] = useState(null);
+
+      const loadReport = () => {
+        if (!month || !year) {
+          Swal.fire({ icon: 'warning', title: 'Missing Selection', text: 'Please select both month and year' });
+          return;
+        }
+
+        setLoading(true);
+        google.script.run
+          .withSuccessHandler((r) => {
+            setLoading(false);
+            if (!r) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'No response from server.' });
+              return;
+            }
+            if (r.success) {
+              setReportData(r);
+            } else {
+              Swal.fire({ icon: 'error', title: 'Error', text: r.message });
+            }
+          })
+          .withFailureHandler((err) => {
+            setLoading(false);
+            Swal.fire({ icon: 'error', title: 'Error', text: err.message });
+          })
+          .getMonthlyReport(month, year);
+      };
+
+      const exportToCSV = () => {
+        if (!reportData || !reportData.data || reportData.data.length === 0) {
+          Swal.fire({ icon: 'warning', text: 'No data to export' });
+          return;
+        }
+
+        const headers = ['Employee ID', 'Employee Name', 'Position', 'Gross Earnings', 'Total Deductions', 'Net Pay', 'Status'];
+        const csvContent = [
+          headers.join(','),
+          ...reportData.data.map(row => [
+            row.EmployeeID,
+            `"${row.EmployeeName}"`,
+            `"${row.Position || ''}"`,
+            row.GrossEarnings,
+            row.TotalDeductions,
+            row.NetPay,
+            row.Status
+          ].join(','))
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `Monthly_Report_${month}_${year}.csv`;
+        link.click();
+        Swal.fire({ icon: 'success', title: 'Exported!', text: 'CSV file downloaded', timer: 2000 });
+      };
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal" style={{ maxWidth: '900px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3><i className="fas fa-chart-bar"></i> Monthly Report</h3>
+              <button className="close-btn" onClick={onClose}><i className="fas fa-times"></i></button>
+            </div>
+            <div className="modal-body">
+              <div className="form-grid" style={{ marginBottom: '20px' }}>
+                <div className="form-group">
+                  <label><i className="fas fa-calendar"></i> Month</label>
+                  <select value={month} onChange={(e) => setMonth(e.target.value)}>
+                    <option value="">Select Month</option>
+                    {uniqueMonths.length > 0 ? uniqueMonths.map((m, idx) => (
+                      <option key={idx} value={m}>{m}</option>
+                    )) : (
+                      <>
+                        <option value="January">January</option>
+                        <option value="February">February</option>
+                        <option value="March">March</option>
+                        <option value="April">April</option>
+                        <option value="May">May</option>
+                        <option value="June">June</option>
+                        <option value="July">July</option>
+                        <option value="August">August</option>
+                        <option value="September">September</option>
+                        <option value="October">October</option>
+                        <option value="November">November</option>
+                        <option value="December">December</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label><i className="fas fa-hashtag"></i> Year</label>
+                  <select value={year} onChange={(e) => setYear(e.target.value)}>
+                    {uniqueYears.length > 0 ? uniqueYears.map((y, idx) => (
+                      <option key={idx} value={y}>{y}</option>
+                    )) : (
+                      <>
+                        <option value="2024">2024</option>
+                        <option value="2025">2025</option>
+                        <option value="2026">2026</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginBottom: '20px' }}>
+                <button className="btn btn-primary" onClick={loadReport} disabled={loading}>
+                  {loading ? <><i className="fas fa-spinner fa-spin"></i> Loading...</> : <><i className="fas fa-sync"></i> Generate Report</>}
+                </button>
+                {reportData && (
+                  <button className="btn btn-success" onClick={exportToCSV} style={{ marginLeft: '10px' }}>
+                    <i className="fas fa-file-csv"></i> Export CSV
+                  </button>
+                )}
+              </div>
+
+              {reportData && (
+                <>
+                  <div className="report-summary">
+                    <h4 style={{ marginBottom: '15px', color: 'var(--navy-primary)' }}>
+                      <i className="fas fa-chart-pie"></i> Summary for {month} {year}
+                    </h4>
+                    <div className="summary-grid">
+                      <div className="summary-card">
+                        <div className="summary-value">{reportData.summary.totalEmployees}</div>
+                        <div className="summary-label">Total Employees</div>
+                      </div>
+                      <div className="summary-card">
+                        <div className="summary-value">${parseFloat(reportData.summary.totalGrossEarnings || 0).toFixed(2)}</div>
+                        <div className="summary-label">Total Gross</div>
+                      </div>
+                      <div className="summary-card">
+                        <div className="summary-value">${parseFloat(reportData.summary.totalDeductions || 0).toFixed(2)}</div>
+                        <div className="summary-label">Total Deductions</div>
+                      </div>
+                      <div className="summary-card">
+                        <div className="summary-value">${parseFloat(reportData.summary.totalNetPay || 0).toFixed(2)}</div>
+                        <div className="summary-label">Total Net Pay</div>
+                      </div>
+                      <div className="summary-card success">
+                        <div className="summary-value">{reportData.summary.paidCount}</div>
+                        <div className="summary-label">Paid</div>
+                      </div>
+                      <div className="summary-card warning">
+                        <div className="summary-value">{reportData.summary.pendingCount}</div>
+                        <div className="summary-label">Pending</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <h4 style={{ margin: '20px 0 10px', color: 'var(--navy-primary)' }}>
+                    <i className="fas fa-table"></i> Payslip Details
+                  </h4>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="report-table">
+                      <thead>
+                        <tr>
+                          <th>Employee ID</th>
+                          <th>Name</th>
+                          <th>Position</th>
+                          <th>Gross</th>
+                          <th>Deductions</th>
+                          <th>Net Pay</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportData.data.map((row, idx) => (
+                          <tr key={idx}>
+                            <td>{row.EmployeeID}</td>
+                            <td>{row.EmployeeName}</td>
+                            <td>{row.Position || '-'}</td>
+                            <td>${parseFloat(row.GrossEarnings).toFixed(2)}</td>
+                            <td>${parseFloat(row.TotalDeductions).toFixed(2)}</td>
+                            <td><strong>${parseFloat(row.NetPay).toFixed(2)}</strong></td>
+                            <td>
+                              <span className={`status-badge ${row.Status === 'Paid' ? 'status-paid' : 'status-pending'}`}>
+                                {row.Status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              {!reportData && !loading && (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                  <i className="fas fa-chart-bar" style={{ fontSize: '48px', marginBottom: '15px' }}></i>
+                  <p>Select month and year, then click "Generate Report"</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============= Payslip MODAL =============
+    function PayslipModal({ Payslip, onClose, onSave, user, role }) {
+      // Convert ISO date to YYYY-MM-DD for date input
+      const convertISOToDateInput = (isoString) => {
+        if (!isoString) return '';
+        return isoString.split('T')[0];
+      };
+
+      const [formData, setFormData] = useState({
+        EmployeeID: Payslip?.EmployeeID || '',
+        EmployeeName: Payslip?.EmployeeName || '',
+        PayMonth: Payslip?.PayMonth || '',
+        PayYear: Payslip?.PayYear || new Date().getFullYear(),
+        PayDate: convertISOToDateInput(Payslip?.PayDate) || '',
+        PaidDays: Payslip?.PaidDays || 30,
+        LOPDays: Payslip?.LOPDays || 0,
+        Basic: Payslip?.Basic || 0,
+        ServiceCharge: Payslip?.ServiceCharge || 0,
+        Incentive: Payslip?.Incentive || 0,
+        BillTips: Payslip?.BillTips || 0,
+        SalesBonus: Payslip?.SalesBonus || 0,
+        LOPDeduction: Payslip?.LOPDeduction || 0,
+        AdvancePayment: Payslip?.AdvancePayment || 0,
+        ShopCharges: Payslip?.ShopCharges || 0,
+        Status: Payslip?.Status || 'Pending'
+      });
+      const [saving, setSaving] = useState(false);
+      const [employeeData, setEmployeeData] = useState(null);
+      const [employeesList, setEmployeesList] = useState([]);
+
+      // Load employees list for autocomplete on mount
+      useEffect(() => {
+        google.script.run
+          .withSuccessHandler((result) => {
+            if (result && result.success) {
+              setEmployeesList(result.data);
+            }
+          })
+          .withFailureHandler((err) => console.log('Failed to load employees:', err))
+          .getEmployees(user, role);
+      }, []);
+
+      const searchEmployee = () => {
+        if (!formData.EmployeeID.trim()) {
+          Swal.fire({ icon: 'warning', text: 'Please enter an Employee ID' });
+          return;
+        }
+
+        google.script.run
+          .withSuccessHandler((result) => {
+            if (!result) {
+              Swal.fire({ icon: 'error', text: 'No data received. Please run setupDemoData() in Code.gs first.' });
+              return;
+            }
+            if (result.success) {
+              setEmployeeData(result.data);
+              setFormData({
+                ...formData,
+                EmployeeName: result.data.EmployeeName,
+                Basic: result.data.BasicSalary
+              });
+              Swal.fire({ icon: 'success', text: 'Employee found!', timer: 1500, showConfirmButton: false });
+            } else {
+              Swal.fire({ icon: 'error', text: result.message });
+            }
+          })
+          .withFailureHandler((err) => Swal.fire({ icon: 'error', text: err.message }))
+          .getEmployeeByID(formData.EmployeeID);
+      };
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>
+                <i className="fas fa-file-invoice-dollar"></i> {Payslip ? 'Edit' : 'Generate'} Payslip
+              </h3>
+              <button className="close-btn" onClick={onClose}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="modal-body">
+              <form onSubmit={(e) => { e.preventDefault(); setSaving(true); onSave(formData); }}>
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label>
+                      Employee ID *
+                      {employeesList.length > 0 && (
+                        <span style={{ fontSize: '12px', color: '#666', marginLeft: '8px', fontWeight: 'normal' }}>
+                          <i className="fas fa-info-circle"></i> Start typing to see suggestions
+                        </span>
+                      )}
+                    </label>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <input
+                        type="text"
+                        value={formData.EmployeeID}
+                        onChange={(e) => {
+                          const value = e.target.value;
+
+                          // Auto-search when user selects from datalist
+                          const matchedEmployee = employeesList.find(emp => emp.EmployeeID === value);
+                          if (matchedEmployee) {
+                            setEmployeeData(matchedEmployee);
+                            setFormData(prev => ({
+                              ...prev,
+                              EmployeeID: matchedEmployee.EmployeeID,
+                              EmployeeName: matchedEmployee.EmployeeName,
+                              Basic: matchedEmployee.BasicSalary
+                            }));
+                          } else {
+                            setFormData(prev => ({ ...prev, EmployeeID: value }));
+                          }
+                        }}
+                        list="employeeIdList"
+                        placeholder="Type or select Employee ID"
+                        autoComplete="off"
+                        required
+                      />
+                      <datalist id="employeeIdList">
+                        {employeesList.map((emp) => (
+                          <option key={emp.ID} value={emp.EmployeeID}>
+                            {emp.EmployeeName} - {emp.Position}
+                          </option>
+                        ))}
+                      </datalist>
+                      <button type="button" className="btn btn-secondary" onClick={searchEmployee}>
+                        <i className="fas fa-search"></i>
+                      </button>
+                    </div>
+                    {employeesList.length > 0 && (
+                      <small style={{ color: '#666', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+                        {employeesList.length} employee(s) available
+                      </small>
+                    )}
+                  </div>
+                  <div className="form-group">
+                    <label>Employee Name *</label>
+                    <input
+                      type="text"
+                      value={formData.EmployeeName}
+                      onChange={(e) => setFormData({ ...formData, EmployeeName: e.target.value })}
+                      required
+                      readOnly
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Pay Month *</label>
+                    <select value={formData.PayMonth} onChange={(e) => setFormData({ ...formData, PayMonth: e.target.value })} required>
+                      <option value="">Select Month</option>
+                      <option value="January">January</option>
+                      <option value="February">February</option>
+                      <option value="March">March</option>
+                      <option value="April">April</option>
+                      <option value="May">May</option>
+                      <option value="June">June</option>
+                      <option value="July">July</option>
+                      <option value="August">August</option>
+                      <option value="September">September</option>
+                      <option value="October">October</option>
+                      <option value="November">November</option>
+                      <option value="December">December</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Pay Year *</label>
+                    <input
+                      type="number"
+                      value={formData.PayYear}
+                      onChange={(e) => setFormData({ ...formData, PayYear: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Pay Date *</label>
+                    <input
+                      type="date"
+                      value={formData.PayDate}
+                      onChange={(e) => setFormData({ ...formData, PayDate: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Paid Days</label>
+                    <input
+                      type="number"
+                      value={formData.PaidDays}
+                      onChange={(e) => setFormData({ ...formData, PaidDays: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>LOP Days</label>
+                    <input
+                      type="number"
+                      value={formData.LOPDays}
+                      onChange={(e) => setFormData({ ...formData, LOPDays: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <h4 style={{ marginTop: '20px', marginBottom: '15px', color: '#333' }}>Earnings</h4>
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label>Basic</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.Basic}
+                      onChange={(e) => setFormData({ ...formData, Basic: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Service Charge</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.ServiceCharge}
+                      onChange={(e) => setFormData({ ...formData, ServiceCharge: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Incentive</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.Incentive}
+                      onChange={(e) => setFormData({ ...formData, Incentive: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Bill Tips</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.BillTips}
+                      onChange={(e) => setFormData({ ...formData, BillTips: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Sales Bonus</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.SalesBonus}
+                      onChange={(e) => setFormData({ ...formData, SalesBonus: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <h4 style={{ marginTop: '20px', marginBottom: '15px', color: '#333' }}>Deductions</h4>
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label>LOP Days Deduction</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.LOPDeduction}
+                      onChange={(e) => setFormData({ ...formData, LOPDeduction: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Advance Payment</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.AdvancePayment}
+                      onChange={(e) => setFormData({ ...formData, AdvancePayment: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Shop Charges</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.ShopCharges}
+                      onChange={(e) => setFormData({ ...formData, ShopCharges: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Status</label>
+                    <select value={formData.Status} onChange={(e) => setFormData({ ...formData, Status: e.target.value })}>
+                      <option value="Pending">Pending</option>
+                      <option value="Paid">Paid</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-actions">
+                  <button type="submit" className="btn btn-primary" disabled={saving}>
+                    {saving ? (
+                      <>
+                        <i className="fas fa-spinner fa-spin"></i> Saving...
+                      </>
+                    ) : (
+                      <>
+                        <i className="fas fa-save"></i> Save
+                      </>
+                    )}
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={onClose}>
+                    <i className="fas fa-times"></i> Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============= Payslip PRINT =============
+</script>

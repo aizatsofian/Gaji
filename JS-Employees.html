@@ -1,0 +1,499 @@
+<script type="text/babel">
+    function EmployeesView({ user, role }) {
+      const [loading, setLoading] = useState(true);
+      const [showModal, setShowModal] = useState(false);
+      const [editingEmployee, setEditingEmployee] = useState(null);
+      const [employees, setEmployees] = useState([]);
+      const tableInstanceRef = useRef(null);
+      const [showHistoryModal, setShowHistoryModal] = useState(false);
+      const [historyEmployee, setHistoryEmployee] = useState(null);
+
+      useEffect(() => {
+        loadEmployees();
+        return () => {
+          if (tableInstanceRef.current) {
+            try {
+              tableInstanceRef.current.destroy();
+              tableInstanceRef.current = null;
+            } catch (e) {
+              console.log('DataTable cleanup error:', e);
+            }
+          }
+        };
+      }, []);
+
+      const loadEmployees = () => {
+        setLoading(true);
+        google.script.run
+          .withSuccessHandler((result) => {
+            setLoading(false);
+            if (!result) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'No data received. Please run setupDemoData() in Code.gs first.' });
+              return;
+            }
+            if (result.success) {
+              setEmployees(result.data);
+              setTimeout(() => initializeDataTable(result.data), 100);
+            } else {
+              Swal.fire({ icon: 'error', title: 'Error', text: result.message });
+            }
+          })
+          .withFailureHandler((err) => {
+            setLoading(false);
+            Swal.fire({ icon: 'error', title: 'Error', text: err.message });
+          })
+          .getEmployees(user, role);
+      };
+
+      const initializeDataTable = (data) => {
+        if (tableInstanceRef.current) {
+          try {
+            tableInstanceRef.current.destroy();
+            tableInstanceRef.current = null;
+            $('#employeesTable').empty();
+          } catch (e) {
+            console.log('DataTable destroy error:', e);
+          }
+        }
+
+        setTimeout(() => {
+          try {
+            const table = $('#employeesTable').DataTable({
+              data: data,
+              destroy: true,
+              columns: [
+                { data: 'ID', title: 'ID', render: (d) => `<span class="cell-id">${d}</span>` },
+                { data: 'EmployeeID', title: 'Employee ID', render: (d) => `<span class="cell-badge cell-badge-info">${d}</span>` },
+                { data: 'EmployeeName', title: 'Name', render: (d) => `<span class="cell-employee-name"><i class="fas fa-user-circle" style="margin-right: 6px; color: var(--navy-accent);"></i>${d}</span>` },
+                { data: 'Email', title: 'Email', render: (d) => `<span class="cell-email"><i class="fas fa-envelope" style="margin-right: 6px; color: #7f8c8d;"></i>${d}</span>` },
+                {
+                  data: 'Position',
+                  title: 'Position',
+                  render: (d) => {
+                    const positionColors = {
+                      'Staff': '#3498db',
+                      'Supervisor': '#9b59b6',
+                      'Manager': '#e74c3c',
+                      'Assistant': '#2ecc71',
+                      'Admin': '#e67e22'
+                    };
+                    const color = positionColors[d] || '#34495e';
+                    return `<span class="cell-position" style="background: ${color}; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 500;">${d || '-'}</span>`;
+                  }
+                },
+                {
+                  data: 'BasicSalary',
+                  title: 'Basic Salary',
+                  render: (d) => {
+                    const salary = parseFloat(d);
+                    let colorClass = 'cell-salary-low';
+                    if (salary >= 900) colorClass = 'cell-salary-high';
+                    else if (salary >= 750) colorClass = 'cell-salary-medium';
+                    return `<span class="cell-salary ${colorClass}">$${salary.toFixed(2)}</span>`;
+                  }
+                },
+                {
+                  data: 'JoinDate',
+                  title: 'Join Date',
+                  render: (d) => {
+                    if (!d) return '<span class="cell-na">-</span>';
+                    const date = new Date(d);
+                    const now = new Date();
+                    const diffTime = Math.abs(now - date);
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    const years = Math.floor(diffDays / 365);
+                    let tenure = years > 0 ? `${years}y` : `${Math.floor(diffDays / 30)}m`;
+                    return `<span class="cell-date">${date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: '2-digit' })}</span> <span class="cell-tenure">(${tenure})</span>`;
+                  }
+                },
+                {
+                  data: 'Status',
+                  title: 'Status',
+                  render: (d) => `<span class="status-badge ${d === 'Active' ? 'status-active' : 'status-inactive'}"><i class="fas ${d === 'Active' ? 'fa-check' : 'fa-times'}"></i> ${d}</span>`
+                },
+                {
+                  data: null,
+                  title: 'Actions',
+                  orderable: false,
+                  render: () => `
+                    <button class="action-icon history-icon" data-action="history" title="View Payslip History">
+                      <i class="fas fa-history"></i>
+                    </button>
+                    <button class="action-icon edit-icon" data-action="edit" title="Edit Employee">
+                      <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="action-icon delete-icon" data-action="delete" title="Delete Employee">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  `
+                }
+              ],
+              pageLength: 10,
+              lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+              responsive: true,
+              dom: 'Blfrtip',
+              buttons: [
+                { extend: 'csv', text: '<i class="fas fa-file-csv"></i> CSV', exportOptions: { columns: ':not(:last-child)' } },
+                { extend: 'pdf', text: '<i class="fas fa-file-pdf"></i> PDF', exportOptions: { columns: ':not(:last-child)' } },
+                { extend: 'print', text: '<i class="fas fa-print"></i> Print', exportOptions: { columns: ':not(:last-child)' } }
+              ],
+              order: [[0, 'desc']]
+            });
+
+            $('#employeesTable').off('click', '.action-icon');
+            $('#employeesTable').on('click', '.action-icon', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              const action = $(this).data('action');
+              // Handle both regular rows and responsive child rows
+              let $row = $(this).closest('tr');
+              if ($row.hasClass('child')) {
+                $row = $row.prev('tr');
+              }
+              const rowData = table.row($row).data();
+              if (!rowData) {
+                console.log('No row data found');
+                return;
+              }
+              if (action === 'history') {
+                setHistoryEmployee(rowData);
+                setShowHistoryModal(true);
+              } else if (action === 'edit') {
+                setEditingEmployee(rowData);
+                setShowModal(true);
+              } else if (action === 'delete') {
+                handleDelete(rowData);
+              }
+            });
+
+            tableInstanceRef.current = table;
+          } catch (e) {
+            console.error('DataTable initialization error:', e);
+            Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to initialize table: ' + e.message });
+          }
+        }, 150);
+      };
+
+      const handleSave = (employeeData) => {
+        const action = editingEmployee ? 'updateEmployee' : 'addEmployee';
+        const params = editingEmployee ? [editingEmployee.ID, employeeData, user, role] : [employeeData];
+
+        google.script.run
+          .withSuccessHandler((result) => {
+            if (!result) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'No response from server. Please try again.' });
+              return;
+            }
+            if (result.success) {
+              setShowModal(false);
+              setEditingEmployee(null);
+              Swal.fire({ icon: 'success', title: 'Success!', text: result.message, timer: 2000, showConfirmButton: false });
+              setTimeout(() => loadEmployees(), 100);
+            } else {
+              Swal.fire({ icon: 'error', title: 'Error', text: result.message });
+            }
+          })
+          .withFailureHandler((err) => Swal.fire({ icon: 'error', title: 'Error', text: err.message }))
+          [action](...params);
+      };
+
+      const handleDelete = (employee) => {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Delete Employee?',
+          text: 'This cannot be undone',
+          showCancelButton: true,
+          confirmButtonColor: '#ea4335',
+          confirmButtonText: 'Delete'
+        }).then((result) => {
+          if (result.isConfirmed) {
+            google.script.run
+              .withSuccessHandler((r) => {
+                if (!r) {
+                  Swal.fire({ icon: 'error', title: 'Error', text: 'No response from server. Please try again.' });
+                  return;
+                }
+                if (r.success) {
+                  Swal.fire({ icon: 'success', text: r.message, timer: 2000, showConfirmButton: false });
+                  setTimeout(() => loadEmployees(), 100);
+                } else {
+                  Swal.fire({ icon: 'error', title: 'Error', text: r.message });
+                }
+              })
+              .withFailureHandler((err) => Swal.fire({ icon: 'error', title: 'Error', text: err.message }))
+              .deleteEmployee(employee.ID, user, role);
+          }
+        });
+      };
+
+      return (
+        <div className="data-section">
+          <div className="section-header">
+            <h2>
+              <i className="fas fa-users"></i> Employees
+            </h2>
+            <button className="btn btn-success" onClick={() => { setEditingEmployee(null); setShowModal(true); }}>
+              <i className="fas fa-plus"></i> Add Employee
+            </button>
+          </div>
+          {loading && <TableSkeleton rows={8} columns={8} />}
+          <div style={{ display: loading ? 'none' : 'block' }}>
+            <table id="employeesTable" className="display" style={{ width: '100%' }}></table>
+          </div>
+          {showModal && (
+            <EmployeeModal
+              employee={editingEmployee}
+              onClose={() => { setShowModal(false); setEditingEmployee(null); }}
+              onSave={handleSave}
+            />
+          )}
+          {showHistoryModal && historyEmployee && (
+            <EmployeeHistoryModal
+              employee={historyEmployee}
+              onClose={() => { setShowHistoryModal(false); setHistoryEmployee(null); }}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // ============= EMPLOYEE HISTORY MODAL =============
+    function EmployeeHistoryModal({ employee, onClose }) {
+      const [loading, setLoading] = useState(true);
+      const [historyData, setHistoryData] = useState(null);
+
+      useEffect(() => {
+        loadHistory();
+      }, [employee.EmployeeID]);
+
+      const loadHistory = () => {
+        setLoading(true);
+        google.script.run
+          .withSuccessHandler((r) => {
+            setLoading(false);
+            if (!r) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'No response from server.' });
+              return;
+            }
+            if (r.success) {
+              setHistoryData(r);
+            } else {
+              Swal.fire({ icon: 'error', title: 'Error', text: r.message });
+            }
+          })
+          .withFailureHandler((err) => {
+            setLoading(false);
+            Swal.fire({ icon: 'error', title: 'Error', text: err.message });
+          })
+          .getEmployeePayslipHistory(employee.EmployeeID);
+      };
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal" style={{ maxWidth: '900px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3><i className="fas fa-history"></i> Payslip History</h3>
+              <button className="close-btn" onClick={onClose}><i className="fas fa-times"></i></button>
+            </div>
+            <div className="modal-body">
+              {loading ? (
+                <div style={{ textAlign: 'center', padding: '40px' }}>
+                  <i className="fas fa-spinner fa-spin" style={{ fontSize: '32px', color: 'var(--navy-primary)' }}></i>
+                  <p style={{ marginTop: '15px' }}>Loading history...</p>
+                </div>
+              ) : historyData ? (
+                <>
+                  <div className="employee-info-card">
+                    <div className="employee-info-header">
+                      <div className="employee-avatar">
+                        <i className="fas fa-user-circle"></i>
+                      </div>
+                      <div className="employee-details">
+                        <h4>{historyData.employee.EmployeeName}</h4>
+                        <p><i className="fas fa-id-badge"></i> {historyData.employee.EmployeeID}</p>
+                        <p><i className="fas fa-briefcase"></i> {historyData.employee.Position || 'N/A'}</p>
+                        <p><i className="fas fa-envelope"></i> {historyData.employee.Email}</p>
+                      </div>
+                      <div className="total-earned">
+                        <span className="label">Total Earned</span>
+                        <span className="value">${historyData.totalEarned}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {historyData.history.length > 0 ? (
+                    <div style={{ overflowX: 'auto', marginTop: '20px' }}>
+                      <table className="report-table">
+                        <thead>
+                          <tr>
+                            <th>Period</th>
+                            <th>Pay Date</th>
+                            <th>Gross</th>
+                            <th>Deductions</th>
+                            <th>Net Pay</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {historyData.history.map((p, idx) => (
+                            <tr key={idx}>
+                              <td><strong>{p.PayMonth} {p.PayYear}</strong></td>
+                              <td>
+                                {p.PayDate ? new Date(p.PayDate).toLocaleDateString('en-US', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: '2-digit'
+                                }) : '-'}
+                              </td>
+                              <td>${parseFloat(p.GrossEarnings).toFixed(2)}</td>
+                              <td>${parseFloat(p.TotalDeductions).toFixed(2)}</td>
+                              <td><strong>${parseFloat(p.NetPay).toFixed(2)}</strong></td>
+                              <td>
+                                <span className={`status-badge ${p.Status === 'Paid' ? 'status-paid' : 'status-pending'}`}>
+                                  {p.Status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                      <i className="fas fa-file-invoice-dollar" style={{ fontSize: '48px', marginBottom: '15px' }}></i>
+                      <p>No Payslip history found for this employee</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                  <i className="fas fa-exclamation-triangle" style={{ fontSize: '48px', marginBottom: '15px' }}></i>
+                  <p>Failed to load history data</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============= EMPLOYEE MODAL =============
+    function EmployeeModal({ employee, onClose, onSave }) {
+      // Convert ISO date to YYYY-MM-DD for date input
+      const convertISOToDateInput = (isoString) => {
+        if (!isoString) return '';
+        return isoString.split('T')[0];
+      };
+
+      const [formData, setFormData] = useState({
+        EmployeeID: employee?.EmployeeID || '',
+        EmployeeName: employee?.EmployeeName || '',
+        Email: employee?.Email || '',
+        Position: employee?.Position || '',
+        BasicSalary: employee?.BasicSalary || '',
+        Status: employee?.Status || 'Active',
+        JoinDate: convertISOToDateInput(employee?.JoinDate) || ''
+      });
+      const [saving, setSaving] = useState(false);
+
+      return (
+        <div className="modal-overlay" onClick={onClose}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>
+                <i className="fas fa-user-plus"></i> {employee ? 'Edit' : 'Add'} Employee
+              </h3>
+              <button className="close-btn" onClick={onClose}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="modal-body">
+              <form onSubmit={(e) => { e.preventDefault(); setSaving(true); onSave(formData); }}>
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label>Employee ID *</label>
+                    <input
+                      type="text"
+                      value={formData.EmployeeID}
+                      onChange={(e) => setFormData({ ...formData, EmployeeID: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Full Name *</label>
+                    <input
+                      type="text"
+                      value={formData.EmployeeName}
+                      onChange={(e) => setFormData({ ...formData, EmployeeName: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Email *</label>
+                    <input
+                      type="email"
+                      value={formData.Email}
+                      onChange={(e) => setFormData({ ...formData, Email: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Position *</label>
+                    <input
+                      type="text"
+                      value={formData.Position}
+                      onChange={(e) => setFormData({ ...formData, Position: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Basic Salary *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.BasicSalary}
+                      onChange={(e) => setFormData({ ...formData, BasicSalary: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Status</label>
+                    <select value={formData.Status} onChange={(e) => setFormData({ ...formData, Status: e.target.value })}>
+                      <option value="Active">Active</option>
+                      <option value="Inactive">Inactive</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Join Date</label>
+                    <input
+                      type="date"
+                      value={formData.JoinDate}
+                      onChange={(e) => setFormData({ ...formData, JoinDate: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="form-actions">
+                  <button type="submit" className="btn btn-primary" disabled={saving}>
+                    {saving ? (
+                      <>
+                        <i className="fas fa-spinner fa-spin"></i> Saving...
+                      </>
+                    ) : (
+                      <>
+                        <i className="fas fa-save"></i> Save
+                      </>
+                    )}
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={onClose}>
+                    <i className="fas fa-times"></i> Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============= PayslipS VIEW =============
+</script>

@@ -1,0 +1,559 @@
+    /* Payslip Print Styles */
+    .Payslip-container {
+      width: 210mm;
+      min-height: 297mm;
+      padding: 15mm 20mm;
+      margin: 0 auto;
+      background: white;
+      position: relative;
+      overflow: hidden;
+      font-family: 'Arial', sans-serif;
+    }
+
+    .Payslip-watermark {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 80%;
+      height: 80%;
+      opacity: 0.05;
+      z-index: 0;
+      background-image: url('https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhebmAUcYFeNJmlcMeG2LlswzbwmFOz4UkaekSdNaEo60TZKtE0uzXzfJGEEe7kT01PkBJoSe6zQrYQZrttYJ1H6Eczq8yl-PWqsF63i-t6ZbHKfPPbUNaZt5h5iVg5nbaeIpSu4XdRuiS4SDiIFXRPZduFIFz_0LDdwGEis9h-y7jpq9MMDwKInxYFcHTd/s920/c9872608-1902-4385-9a69-bba7de71fa08.jpg');
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+    }
+
+    .Payslip-content {
+      position: relative;
+      z-index: 1;
+    }
+
+    .Payslip-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 25px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #d0d0d0;
+    }
+
+    .company-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .company-logo {
+      width: 70px;
+      height: 70px;
+      object-fit: contain;
+      border: 2px solid #e0e0e0;
+      padding: 5px;
+      background: white;
+    }
+
+    .company-details h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 3px;
+      letter-spacing: 0.5px;
+    }
+
+    .company-details p {
+      font-size: 12px;
+      color: #666;
+      font-weight: 400;
+    }
+
+    .Payslip-title {
+      text-align: right;
+    }
+
+    .Payslip-title p {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 3px;
+      font-weight: 400;
+    }
+
+    .Payslip-title h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1a1a1a;
+      letter-spacing: 0.5px;
+    }
+
+    .Payslip-top-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+
+    .employee-summary {
+      background: #f8f9fa;
+      padding: 18px 20px;
+      border-radius: 2px;
+      border: 1px solid #e5e5e5;
+    }
+
+    .employee-summary h3 {
+      font-size: 12px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 15px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+    }
+
+    .summary-row {
+      display: flex;
+      margin-bottom: 10px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .summary-row .label {
+      color: #666;
+      min-width: 130px;
+      font-weight: 400;
+    }
+
+    .summary-row .value {
+      color: #1a1a1a;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .net-pay-summary {
+      background: linear-gradient(135deg, #d4e9f7 0%, #b8daf0 100%);
+      padding: 20px 22px;
+      border-radius: 2px;
+      border: 1px solid #a0c8e0;
+      border-left: 4px solid #4a90c8;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .net-pay-amount {
+      font-size: 42px;
+      font-weight: 700;
+      color: #1a5280;
+      margin-bottom: 8px;
+      line-height: 1;
+    }
+
+    .net-pay-label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 20px;
+      font-weight: 500;
+    }
+
+    .net-pay-summary .summary-row {
+      margin-bottom: 8px;
+    }
+
+    .net-pay-summary .summary-row .label {
+      font-weight: 600;
+      min-width: 90px;
+      color: #555;
+    }
+
+    .net-pay-summary .summary-row .value {
+      font-weight: 700;
+      color: #1a5280;
+    }
+
+    .payment-info {
+      grid-column: 1 / -1;
+      margin-bottom: 15px;
+      margin-top: 10px;
+    }
+
+    .payment-info h3 {
+      font-size: 11px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .payment-info p {
+      font-size: 11px;
+      color: #666;
+      font-style: italic;
+    }
+
+    .earnings-deductions {
+      grid-column: 1 / -1;
+      margin-bottom: 25px;
+    }
+
+    .combined-table-header {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+      margin-bottom: 10px;
+    }
+
+    .table-header-section {
+      font-size: 11px;
+      font-weight: 700;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .Payslip-combined-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-bottom: 18px;
+    }
+
+    .Payslip-combined-table tr {
+      border-bottom: 1px solid #e8e8e8;
+    }
+
+    .Payslip-combined-table td {
+      padding: 9px 12px;
+      vertical-align: middle;
+    }
+
+    .Payslip-combined-table td:nth-child(1),
+    .Payslip-combined-table td:nth-child(3) {
+      color: #555;
+      font-weight: 400;
+      width: 35%;
+    }
+
+    .Payslip-combined-table td:nth-child(2),
+    .Payslip-combined-table td:nth-child(4) {
+      text-align: right;
+      font-weight: 600;
+      color: #1a1a1a;
+      width: 15%;
+    }
+
+    .Payslip-combined-table .table-divider {
+      border-right: 2px solid #d0d0d0;
+    }
+
+    .Payslip-combined-table .total-row {
+      font-weight: 700;
+      color: #1a1a1a;
+      border-top: 2px solid #1a1a1a;
+      border-bottom: 2px solid #1a1a1a;
+    }
+
+    .Payslip-combined-table .total-row td {
+      padding: 11px 12px;
+    }
+
+    .net-payable {
+      background: #f8f9fa;
+      color: #1a1a1a;
+      padding: 16px 22px;
+      border-radius: 2px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 35px;
+      border: 1px solid #e0e0e0;
+      border-left: 4px solid #1a1a1a;
+    }
+
+    .net-payable .label {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .net-payable .sublabel {
+      font-size: 10px;
+      color: #666;
+      margin-top: 3px;
+      font-weight: 400;
+    }
+
+    .net-payable .amount {
+      font-size: 32px;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+
+    .signatures {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto auto;
+      gap: 40px;
+      margin-bottom: 25px;
+      margin-top: 50px;
+    }
+
+    .signature-block {
+      text-align: center;
+    }
+
+    .signature-line {
+      border-bottom: 1.5px solid #1a1a1a;
+      margin-bottom: 8px;
+      height: 50px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      position: relative;
+    }
+
+    .signature-image {
+      max-width: 140px;
+      max-height: 45px;
+      margin-bottom: -8px;
+    }
+
+    .signature-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 4px;
+    }
+
+    .signature-title {
+      font-size: 11px;
+      color: #666;
+      font-weight: 400;
+    }
+
+    .company-stamp {
+      position: absolute;
+      bottom: 100px;
+      right: 70px;
+      width: 110px;
+      height: 110px;
+      opacity: 0.6;
+    }
+
+    .Payslip-footer {
+      text-align: center;
+      font-size: 10px;
+      color: #777;
+      padding-top: 15px;
+      border-top: 1px solid #d0d0d0;
+      margin-top: 20px;
+    }
+
+    .Payslip-footer p {
+      margin-bottom: 3px;
+      line-height: 1.4;
+    }
+
+    @media print {
+      body * {
+        visibility: hidden;
+      }
+      .Payslip-container, .Payslip-container * {
+        visibility: visible;
+      }
+      .Payslip-container {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 210mm;
+        max-height: 297mm;
+        padding: 5mm 12mm 3mm 12mm !important;
+        margin: 0;
+        overflow: hidden;
+        font-size: 10px !important;
+      }
+      .sidebar, .header, .section-header, .no-print, .search-box, .bottom-nav {
+        display: none !important;
+      }
+
+      /* Header optimization */
+      .Payslip-header {
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: space-between !important;
+        align-items: flex-start !important;
+        margin-bottom: 6px !important;
+        padding-bottom: 6px !important;
+        border-bottom: 1px solid #d0d0d0 !important;
+        page-break-after: avoid !important;
+      }
+      .company-info {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 8px !important;
+      }
+      .company-logo {
+        width: 50px !important;
+        height: 50px !important;
+      }
+      .company-details h1 {
+        font-size: 18px !important;
+        margin-bottom: 1px !important;
+      }
+      .company-details p {
+        font-size: 9px !important;
+      }
+      .Payslip-title {
+        text-align: right !important;
+      }
+      .Payslip-title p {
+        font-size: 9px !important;
+        margin-bottom: 1px !important;
+      }
+      .Payslip-title h2 {
+        font-size: 16px !important;
+      }
+
+      /* Top section optimization */
+      .Payslip-top-section {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 10px !important;
+        margin-bottom: 6px !important;
+      }
+      .employee-summary, .net-pay-summary {
+        padding: 10px 12px !important;
+      }
+      .employee-summary h3, .net-pay-summary h3 {
+        font-size: 10px !important;
+        margin-bottom: 6px !important;
+      }
+      .summary-item {
+        margin-bottom: 4px !important;
+      }
+      .summary-label {
+        font-size: 9px !important;
+      }
+      .summary-value {
+        font-size: 10px !important;
+      }
+      .net-pay-amount {
+        font-size: 28px !important;
+        margin-bottom: 4px !important;
+      }
+      .net-pay-label {
+        font-size: 10px !important;
+      }
+      .days-info {
+        margin-top: 10px !important;
+        padding-top: 8px !important;
+      }
+      .days-item {
+        margin-bottom: 3px !important;
+      }
+      .days-label {
+        font-size: 9px !important;
+      }
+      .days-value {
+        font-size: 14px !important;
+      }
+
+      /* Payment details optimization */
+      .payment-details {
+        margin-bottom: 6px !important;
+      }
+      .payment-details h3 {
+        font-size: 10px !important;
+        margin-bottom: 3px !important;
+      }
+      .payment-details p {
+        font-size: 9px !important;
+      }
+
+      /* Combined table optimization */
+      .combined-table-container {
+        margin-bottom: 6px !important;
+      }
+      .Payslip-combined-table {
+        font-size: 9px !important;
+        margin-bottom: 6px !important;
+      }
+      .Payslip-combined-table td {
+        padding: 4px 6px !important;
+      }
+      .Payslip-combined-table tr.total-row td {
+        padding: 5px 6px !important;
+        font-size: 9px !important;
+      }
+      .combined-table-header {
+        font-size: 8px !important;
+        padding: 5px 6px !important;
+        margin-bottom: 0 !important;
+      }
+
+      /* Net payable optimization */
+      .net-payable {
+        margin-top: 6px !important;
+        margin-bottom: 6px !important;
+        padding: 8px 12px !important;
+      }
+      .net-payable h3 {
+        font-size: 10px !important;
+      }
+      .net-payable p {
+        font-size: 9px !important;
+      }
+      .net-payable-amount {
+        font-size: 20px !important;
+      }
+
+      /* Signatures optimization - CRITICAL COMPRESSION */
+      .signatures {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        grid-template-rows: auto auto !important;
+        gap: 12px 20px !important;
+        margin-top: 12px !important;
+        margin-bottom: 6px !important;
+        page-break-inside: avoid !important;
+      }
+      .signature-box {
+        padding: 0 !important;
+      }
+      .signature-line {
+        height: 28px !important;
+        margin-bottom: 4px !important;
+      }
+      .signature-name {
+        font-size: 10px !important;
+        margin-bottom: 2px !important;
+      }
+      .signature-role {
+        font-size: 8px !important;
+      }
+      .company-stamp {
+        width: 65px !important;
+        height: 65px !important;
+        margin-top: 4px !important;
+      }
+
+      /* Footer optimization */
+      .Payslip-footer {
+        margin-top: 8px !important;
+        padding-top: 8px !important;
+        border-top: 1px solid #e0e0e0 !important;
+      }
+      .Payslip-footer p {
+        font-size: 8px !important;
+        margin-bottom: 1px !important;
+        line-height: 1.2 !important;
+      }
+
+      @page {
+        size: A4;
+        margin: 0;
+      }
+    }

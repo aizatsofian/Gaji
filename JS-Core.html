@@ -1,0 +1,854 @@
+<script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ============= MAIN APP =============
+    // Session configuration
+    const SESSION_KEY = 'Payslip_session';
+    const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+    function App() {
+      const [isLoggedIn, setIsLoggedIn] = useState(false);
+      const [currentUser, setCurrentUser] = useState(null);
+      const [userRole, setUserRole] = useState(null);
+      const [userEmail, setUserEmail] = useState(null);
+      const [employeeID, setEmployeeID] = useState(null);
+      const [isLoading, setIsLoading] = useState(true);
+
+      // Check for existing session on mount
+      useEffect(() => {
+        const checkSession = () => {
+          try {
+            const sessionData = localStorage.getItem(SESSION_KEY);
+            if (sessionData) {
+              const session = JSON.parse(sessionData);
+              const now = new Date().getTime();
+
+              // Check if session is still valid (within 24 hours)
+              if (session.expiry && now < session.expiry) {
+                setIsLoggedIn(true);
+                setCurrentUser(session.username);
+                setUserRole(session.role);
+                setUserEmail(session.email || null);
+                setEmployeeID(session.employeeID || null);
+              } else {
+                // Session expired, clear it
+                localStorage.removeItem(SESSION_KEY);
+              }
+            }
+          } catch (error) {
+            console.log('Session check error:', error);
+            localStorage.removeItem(SESSION_KEY);
+          }
+          setIsLoading(false);
+        };
+
+        checkSession();
+      }, []);
+
+      // Handle login - save to localStorage
+      const handleLogin = (username, role, email, empID) => {
+        const session = {
+          username: username,
+          role: role,
+          email: email || '',
+          employeeID: empID || '',
+          expiry: new Date().getTime() + SESSION_DURATION,
+          loginTime: new Date().toISOString()
+        };
+        localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        setIsLoggedIn(true);
+        setCurrentUser(username);
+        setUserRole(role);
+        setUserEmail(email || null);
+        setEmployeeID(empID || null);
+      };
+
+      // Handle logout - clear localStorage
+      const handleLogout = () => {
+        localStorage.removeItem(SESSION_KEY);
+        setIsLoggedIn(false);
+        setCurrentUser(null);
+        setUserRole(null);
+        setUserEmail(null);
+        setEmployeeID(null);
+      };
+
+      // Show loading while checking session
+      if (isLoading) {
+        return (
+          <div className="login-container">
+            <div className="login-box" style={{ textAlign: 'center' }}>
+              <i className="fas fa-spinner fa-spin" style={{ fontSize: '40px', color: 'var(--navy-primary)', marginBottom: '20px' }}></i>
+              <p style={{ color: '#666' }}>Loading...</p>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div>
+          {!isLoggedIn ? (
+            <LoginPage onLogin={handleLogin} />
+          ) : (
+            <Dashboard
+              user={currentUser}
+              role={userRole}
+              email={userEmail}
+              employeeID={employeeID}
+              onLogout={handleLogout}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // ============= LOGIN PAGE =============
+    function LoginPage({ onLogin }) {
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [showSearchSlip, setShowSearchSlip] = useState(false);
+      const [searchEmployeeID, setSearchEmployeeID] = useState('');
+      const [searching, setSearching] = useState(false);
+      const [foundPayslip, setFoundPayslip] = useState(null);
+      const [allPayslips, setAllPayslips] = useState([]);
+      const [selectedPeriod, setSelectedPeriod] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        setLoading(true);
+        google.script.run
+          .withSuccessHandler((result) => {
+            setLoading(false);
+            if (!result) {
+              setError('Server error: No response received. Please run setupDemoData() first.');
+              return;
+            }
+            if (result.success) {
+              onLogin(result.username, result.role, result.email, result.employeeID);
+            } else {
+              setError(result.message);
+            }
+          })
+          .withFailureHandler((err) => {
+            setLoading(false);
+            setError('Connection error: ' + err.message);
+          })
+          .authenticateUser(email, password);
+      };
+
+      const handleSearchSlip = () => {
+        if (!searchEmployeeID.trim()) {
+          Swal.fire({ icon: 'warning', text: 'Please enter an Employee ID' });
+          return;
+        }
+
+        setSearching(true);
+        setAllPayslips([]);
+        setSelectedPeriod('');
+        setFoundPayslip(null);
+
+        google.script.run
+          .withSuccessHandler((result) => {
+            setSearching(false);
+            if (!result) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'No data received. Please run setupDemoData() in Code.gs first.' });
+              return;
+            }
+            if (result.success && result.data.length > 0) {
+              // Sort Payslips by year and month (newest first)
+              const sortedPayslips = result.data.sort((a, b) => {
+                if (b.PayYear !== a.PayYear) return b.PayYear - a.PayYear;
+                const months = ['January', 'February', 'March', 'April', 'May', 'June',
+                                'July', 'August', 'September', 'October', 'November', 'December'];
+                return months.indexOf(b.PayMonth) - months.indexOf(a.PayMonth);
+              });
+
+              if (sortedPayslips.length === 1) {
+                // Only one Payslip - show it directly
+                setFoundPayslip(sortedPayslips[0]);
+              } else {
+                // Multiple Payslips - store all and let user select
+                setAllPayslips(sortedPayslips);
+              }
+            } else {
+              Swal.fire({ icon: 'error', title: 'Not Found', text: result.message || 'No Payslips found for this Employee ID' });
+            }
+          })
+          .withFailureHandler((err) => {
+            setSearching(false);
+            Swal.fire({ icon: 'error', title: 'Error', text: err.message });
+          })
+          .getPayslipByEmployeeID(searchEmployeeID);
+      };
+
+      const handleSelectPeriod = (index) => {
+        setSelectedPeriod(index);
+        setFoundPayslip(allPayslips[index]);
+      };
+
+      const handleBackToSelection = () => {
+        setFoundPayslip(null);
+        setSelectedPeriod('');
+      };
+
+      const handlePrint = () => {
+        window.print();
+      };
+
+      const handleDownloadPDF = () => {
+        const PayslipElement = document.querySelector('.Payslip-container');
+        if (!PayslipElement) {
+          Swal.fire({ icon: 'error', title: 'Error', text: 'Payslip not found' });
+          return;
+        }
+
+        Swal.fire({
+          title: 'Generating PDF...',
+          text: 'Please wait',
+          allowOutsideClick: false,
+          didOpen: () => {
+            Swal.showLoading();
+          }
+        });
+
+        const opt = {
+          margin: [5, 12, 3, 12],
+          filename: `Payslip_${foundPayslip?.EmployeeName || 'Employee'}_${foundPayslip?.PayMonth || 'Unknown'}.pdf`,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: {
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            letterRendering: true
+          },
+          jsPDF: {
+            unit: 'mm',
+            format: 'a4',
+            orientation: 'portrait'
+          }
+        };
+
+        html2pdf().set(opt).from(PayslipElement).save().then(() => {
+          Swal.fire({
+            icon: 'success',
+            title: 'Success!',
+            text: 'PDF downloaded successfully',
+            timer: 2000,
+            showConfirmButton: false
+          });
+        }).catch((err) => {
+          Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Failed to generate PDF: ' + err.message
+          });
+        });
+      };
+
+      const handleBackToLogin = () => {
+        setShowSearchSlip(false);
+        setFoundPayslip(null);
+        setSearchEmployeeID('');
+        setAllPayslips([]);
+        setSelectedPeriod('');
+      };
+
+      // Show search page
+      if (showSearchSlip) {
+        return (
+          <div className="login-container">
+            {!foundPayslip && allPayslips.length === 0 ? (
+              // Step 1: Search form
+              <div className="login-box" style={{ maxWidth: '600px' }}>
+                <img
+                  src="https://raw.githubusercontent.com/aizatsofian/peroduaimage/main/LOGO.jpg"
+                  alt="Logo"
+                  className="login-logo"
+                />
+                <h2>Search Payslip</h2>
+
+                <form onSubmit={(e) => { e.preventDefault(); handleSearchSlip(); }}>
+                  <div className="form-group">
+                    <label>Employee ID *</label>
+                    <input
+                      type="text"
+                      value={searchEmployeeID}
+                      onChange={(e) => setSearchEmployeeID(e.target.value)}
+                      placeholder="Enter Employee ID (e.g., MLV020)"
+                      required
+                      autoFocus
+                      style={{ fontSize: '18px', padding: '16px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={searching}
+                      style={{ flex: 1 }}
+                    >
+                      {searching ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin"></i> Searching...
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-search"></i> Search
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleBackToLogin}
+                    >
+                      <i className="fas fa-arrow-left"></i> Back
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : !foundPayslip && allPayslips.length > 0 ? (
+              // Step 2: Month/Year selector when multiple Payslips found
+              <div className="login-box" style={{ maxWidth: '650px' }}>
+                <img
+                  src="https://raw.githubusercontent.com/aizatsofian/peroduaimage/main/LOGO.jpg"
+                  alt="Logo"
+                  className="login-logo"
+                  style={{ width: '80px', height: '80px' }}
+                />
+                <h2 style={{ marginBottom: '10px' }}>Select Payslip</h2>
+                <p style={{ color: '#666', marginBottom: '25px', fontSize: '15px' }}>
+                  <i className="fas fa-user" style={{ marginRight: '8px', color: 'var(--navy-primary)' }}></i>
+                  <strong>{allPayslips[0]?.EmployeeName}</strong> ({searchEmployeeID})
+                </p>
+                <p style={{ color: '#888', marginBottom: '20px', fontSize: '14px' }}>
+                  Found <strong style={{ color: 'var(--navy-primary)' }}>{allPayslips.length}</strong> Payslips. Please select a month:
+                </p>
+
+                <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '20px' }}>
+                  {allPayslips.map((Payslip, index) => (
+                    <div
+                      key={index}
+                      onClick={() => handleSelectPeriod(index)}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '15px 20px',
+                        marginBottom: '10px',
+                        background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        border: '2px solid #dee2e6',
+                        transition: 'all 0.3s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--navy-accent)';
+                        e.currentTarget.style.transform = 'translateX(5px)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,116,217,0.2)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#dee2e6';
+                        e.currentTarget.style.transform = 'translateX(0)';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        <div style={{
+                          width: '45px',
+                          height: '45px',
+                          background: 'linear-gradient(135deg, var(--navy-primary) 0%, var(--navy-light) 100%)',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'white',
+                          fontSize: '18px'
+                        }}>
+                          <i className="fas fa-calendar-alt"></i>
+                        </div>
+                        <div style={{ textAlign: 'left' }}>
+                          <div style={{ fontWeight: '700', color: 'var(--navy-primary)', fontSize: '16px' }}>
+                            {Payslip.PayMonth} {Payslip.PayYear}
+                          </div>
+                          <div style={{ fontSize: '13px', color: '#666', marginTop: '3px' }}>
+                            Net Pay: <strong style={{ color: 'var(--success)' }}>${parseFloat(Payslip.NetPay).toFixed(2)}</strong>
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span className={`status-badge ${Payslip.Status === 'Paid' ? 'status-paid' : 'status-pending'}`}>
+                          {Payslip.Status}
+                        </span>
+                        <i className="fas fa-chevron-right" style={{ color: '#999' }}></i>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => { setAllPayslips([]); setSearchEmployeeID(''); }}
+                    style={{ flex: 1 }}
+                  >
+                    <i className="fas fa-search"></i> Search Another
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={handleBackToLogin}
+                  >
+                    <i className="fas fa-arrow-left"></i> Back
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Step 3: Show selected Payslip
+              <div style={{ width: '100%', maxWidth: '900px', margin: '20px auto', position: 'relative' }}>
+                <div className="no-print" style={{ display: 'flex', gap: '10px', marginBottom: '20px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    className="btn btn-success"
+                    onClick={handlePrint}
+                    style={{ background: '#34a853' }}
+                  >
+                    <i className="fas fa-print"></i> Print Payslip
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleDownloadPDF}
+                    style={{ background: '#0074D9' }}
+                  >
+                    <i className="fas fa-file-pdf"></i> Download PDF
+                  </button>
+                  {allPayslips.length > 1 && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={handleBackToSelection}
+                      style={{ background: 'var(--navy-accent)' }}
+                    >
+                      <i className="fas fa-list"></i> Other Months
+                    </button>
+                  )}
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => { setFoundPayslip(null); setAllPayslips([]); setSearchEmployeeID(''); }}
+                  >
+                    <i className="fas fa-search"></i> Search Another
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleBackToLogin}
+                  >
+                    <i className="fas fa-arrow-left"></i> Back to Login
+                  </button>
+                </div>
+                <PayslipPrint Payslip={foundPayslip} />
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // Show login page
+      return (
+        <div className="login-container">
+          <div className="login-box">
+            <img
+              src="https://raw.githubusercontent.com/aizatsofian/peroduaimage/main/LOGO.jpg"
+              alt="Logo"
+              className="login-logo"
+            />
+            <h2>Log Masuk Sistem Gaji</h2>
+            <form onSubmit={handleSubmit}>
+              <div className="form-group">
+                <label>Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={loading}
+                style={{ width: '100%' }}
+              >
+                {loading ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin"></i> Logging in...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-sign-in-alt"></i> Login
+                  </>
+                )}
+              </button>
+              {error && <div className="error">{error}</div>}
+            </form>
+
+            <div style={{ marginTop: '25px', paddingTop: '25px', borderTop: '1px solid #e0e0e0' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowSearchSlip(true)}
+                style={{ width: '100%', background: '#4a90c8', color: 'white' }}
+              >
+                <i className="fas fa-search"></i> Search & Print Payslip
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============= SKELETON LOADERS =============
+    function TableSkeleton({ rows = 5, columns = 6 }) {
+      return (
+        <div className="skeleton-table">
+          <div className="skeleton-table-row">
+            {[...Array(columns)].map((_, i) => (
+              <div key={i} className="skeleton skeleton-table-cell" style={{ flex: 1 }}></div>
+            ))}
+          </div>
+          {[...Array(rows)].map((_, r) => (
+            <div key={r} className="skeleton-table-row">
+              {[...Array(columns)].map((_, c) => (
+                <div key={c} className="skeleton skeleton-table-cell" style={{ flex: 1 }}></div>
+              ))}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    function DashboardCardSkeleton() {
+      return (
+        <div className="skeleton-card">
+          <div className="skeleton skeleton-icon"></div>
+          <div className="skeleton skeleton-text-large" style={{ width: '60%' }}></div>
+          <div className="skeleton skeleton-text" style={{ width: '80%' }}></div>
+        </div>
+      );
+    }
+
+    function ChartSkeleton() {
+      return (
+        <div className="chart-card">
+          <div className="skeleton skeleton-chart"></div>
+        </div>
+      );
+    }
+
+    // ============= SIDEBAR =============
+    function Sidebar({ activeMenu, setActiveMenu, role, user, onLogout, collapsed, toggleCollapse }) {
+      const isAdmin = role === 'Admin';
+      const isEmployee = role === 'Employee';
+
+      return (
+        <div className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
+          <div className="sidebar-header">
+            <div className="sidebar-logo">
+              <img src="https://raw.githubusercontent.com/aizatsofian/peroduaimage/main/LOGO.jpg" alt="Dr Excels" className="sidebar-logo-img" />
+              <span className="sidebar-logo-text">{isEmployee ? 'Employee Portal' : 'Payslip Sistem'}</span>
+            </div>
+            <button className="sidebar-toggle" onClick={toggleCollapse} title={collapsed ? 'Expand' : 'Collapse'}>
+              <i className={`fas fa-chevron-${collapsed ? 'right' : 'left'}`}></i>
+            </button>
+          </div>
+          <div className="sidebar-menu-section">
+            <div className="sidebar-menu-title">Navigation</div>
+            <ul className="sidebar-menu">
+              {/* Employee Portal Menu */}
+              {isEmployee && (
+                <>
+                  <li>
+                    <button
+                      className={activeMenu === 'employee-dashboard' ? 'active' : ''}
+                      onClick={() => setActiveMenu('employee-dashboard')}
+                      title="My Dashboard"
+                    >
+                      <i className="fas fa-home"></i>
+                      <span>My Dashboard</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      className={activeMenu === 'employee-Payslips' ? 'active' : ''}
+                      onClick={() => setActiveMenu('employee-Payslips')}
+                      title="My Payslips"
+                    >
+                      <i className="fas fa-file-invoice-dollar"></i>
+                      <span>My Payslips</span>
+                    </button>
+                  </li>
+                </>
+              )}
+              {/* Admin Dashboard */}
+              {isAdmin && (
+                <li>
+                  <button
+                    className={activeMenu === 'dashboard' ? 'active' : ''}
+                    onClick={() => setActiveMenu('dashboard')}
+                    title="Dashboard"
+                  >
+                    <i className="fas fa-chart-line"></i>
+                    <span>Dashboard</span>
+                  </button>
+                </li>
+              )}
+              {/* Admin/User Menu - Not for Employees */}
+              {!isEmployee && (
+                <>
+                  <li>
+                    <button
+                      className={activeMenu === 'employees' ? 'active' : ''}
+                      onClick={() => setActiveMenu('employees')}
+                      title="Employees"
+                    >
+                      <i className="fas fa-users"></i>
+                      <span>Employees</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      className={activeMenu === 'Payslips' ? 'active' : ''}
+                      onClick={() => setActiveMenu('Payslips')}
+                      title="Payslips"
+                    >
+                      <i className="fas fa-file-invoice-dollar"></i>
+                      <span>Payslips</span>
+                    </button>
+                  </li>
+                </>
+              )}
+              {isAdmin && (
+                <>
+                  <li>
+                    <button
+                      className={activeMenu === 'users' ? 'active' : ''}
+                      onClick={() => setActiveMenu('users')}
+                      title="Users"
+                    >
+                      <i className="fas fa-user-shield"></i>
+                      <span>Users</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      className={activeMenu === 'logs' ? 'active' : ''}
+                      onClick={() => setActiveMenu('logs')}
+                      title="Logs"
+                    >
+                      <i className="fas fa-history"></i>
+                      <span>Logs</span>
+                    </button>
+                  </li>
+                </>
+              )}
+              {!isEmployee && (
+                <li>
+                  <button
+                    className={activeMenu === 'account' ? 'active' : ''}
+                    onClick={() => setActiveMenu('account')}
+                    title="My Account"
+                  >
+                    <i className="fas fa-user-circle"></i>
+                    <span>My Account</span>
+                  </button>
+                </li>
+              )}
+            </ul>
+          </div>
+          <div className="sidebar-logout">
+            <button onClick={onLogout} title="Logout">
+              <i className="fas fa-sign-out-alt"></i>
+              <span>Logout</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ============= DASHBOARD =============
+    function Dashboard({ user, role, email, employeeID, onLogout }) {
+      const [activeMenu, setActiveMenu] = useState(role === 'Employee' ? 'employee-dashboard' : (role === 'Admin' ? 'dashboard' : 'Payslips'));
+      const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+      return (
+        <div className={`app-container ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+          <Sidebar
+            activeMenu={activeMenu}
+            setActiveMenu={setActiveMenu}
+            role={role}
+            user={user}
+            onLogout={onLogout}
+            collapsed={sidebarCollapsed}
+            toggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          />
+          <div className="main-content">
+            <div className="header">
+              <h1>
+                <i className="fas fa-tachometer-alt"></i> {role === 'Employee' ? 'Employee Portal' : 'Sistem Pengurusan Gaji'}
+              </h1>
+              <div>Welcome, {user}</div>
+            </div>
+            <MainContent activeMenu={activeMenu} user={user} role={role} email={email} employeeID={employeeID} />
+          </div>
+          <BottomNav
+            activeMenu={activeMenu}
+            setActiveMenu={setActiveMenu}
+            role={role}
+            onLogout={onLogout}
+          />
+        </div>
+      );
+    }
+
+    // ============= BOTTOM NAVIGATION =============
+    function BottomNav({ activeMenu, setActiveMenu, role, onLogout }) {
+      const isAdmin = role === 'Admin';
+      const isEmployee = role === 'Employee';
+
+      return (
+        <nav className="bottom-nav">
+          <ul className="bottom-nav-list">
+            {/* Employee Portal Navigation */}
+            {isEmployee && (
+              <>
+                <li className="bottom-nav-item">
+                  <button
+                    className={`bottom-nav-button ${activeMenu === 'employee-dashboard' ? 'active' : ''}`}
+                    onClick={() => setActiveMenu('employee-dashboard')}
+                  >
+                    <i className="fas fa-home"></i>
+                    <span>Home</span>
+                  </button>
+                </li>
+                <li className="bottom-nav-item">
+                  <button
+                    className={`bottom-nav-button ${activeMenu === 'employee-Payslips' ? 'active' : ''}`}
+                    onClick={() => setActiveMenu('employee-Payslips')}
+                  >
+                    <i className="fas fa-file-invoice-dollar"></i>
+                    <span>Payslips</span>
+                  </button>
+                </li>
+                <li className="bottom-nav-item">
+                  <button
+                    className="bottom-nav-button"
+                    onClick={onLogout}
+                  >
+                    <i className="fas fa-sign-out-alt"></i>
+                    <span>Logout</span>
+                  </button>
+                </li>
+              </>
+            )}
+            {/* Admin/User Navigation */}
+            {!isEmployee && (
+              <>
+                {isAdmin && (
+                  <li className="bottom-nav-item">
+                    <button
+                      className={`bottom-nav-button ${activeMenu === 'dashboard' ? 'active' : ''}`}
+                      onClick={() => setActiveMenu('dashboard')}
+                    >
+                      <i className="fas fa-chart-line"></i>
+                      <span>Dashboard</span>
+                    </button>
+                  </li>
+                )}
+                <li className="bottom-nav-item">
+                  <button
+                    className={`bottom-nav-button ${activeMenu === 'employees' ? 'active' : ''}`}
+                    onClick={() => setActiveMenu('employees')}
+                  >
+                    <i className="fas fa-users"></i>
+                    <span>Employees</span>
+                  </button>
+                </li>
+                <li className="bottom-nav-item">
+                  <button
+                    className={`bottom-nav-button ${activeMenu === 'Payslips' ? 'active' : ''}`}
+                    onClick={() => setActiveMenu('Payslips')}
+                  >
+                    <i className="fas fa-file-invoice-dollar"></i>
+                    <span>Payslips</span>
+                  </button>
+                </li>
+                {isAdmin && (
+                  <li className="bottom-nav-item">
+                    <button
+                      className={`bottom-nav-button ${activeMenu === 'users' ? 'active' : ''}`}
+                      onClick={() => setActiveMenu('users')}
+                    >
+                      <i className="fas fa-user-shield"></i>
+                      <span>Users</span>
+                    </button>
+                  </li>
+                )}
+                <li className="bottom-nav-item">
+                  <button
+                    className={`bottom-nav-button ${activeMenu === 'account' ? 'active' : ''}`}
+                    onClick={() => setActiveMenu('account')}
+                  >
+                    <i className="fas fa-user-circle"></i>
+                    <span>Account</span>
+                  </button>
+                </li>
+                <li className="bottom-nav-item">
+                  <button
+                    className="bottom-nav-button"
+                    onClick={onLogout}
+                  >
+                    <i className="fas fa-sign-out-alt"></i>
+                    <span>Logout</span>
+                  </button>
+                </li>
+              </>
+            )}
+          </ul>
+        </nav>
+      );
+    }
+
+    function MainContent({ activeMenu, user, role, email, employeeID }) {
+      switch (activeMenu) {
+        case 'dashboard':
+          return <DashboardView user={user} role={role} />;
+        case 'employees':
+          return <EmployeesView user={user} role={role} />;
+        case 'Payslips':
+          return <PayslipsView user={user} role={role} />;
+        case 'users':
+          return <UsersView user={user} />;
+        case 'logs':
+          return <LogsView user={user} role={role} />;
+        case 'account':
+          return <AccountView user={user} role={role} email={email} />;
+        // Employee Self-Service Portal Views
+        case 'employee-dashboard':
+          return <EmployeeDashboardView user={user} email={email} employeeID={employeeID} />;
+        case 'employee-Payslips':
+          return <EmployeePayslipsView user={user} email={email} employeeID={employeeID} />;
+        default:
+          return null;
+      }
+    }
+
+    // ============= EMPLOYEE SELF-SERVICE DASHBOARD =============
+</script>
