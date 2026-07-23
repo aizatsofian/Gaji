@@ -1,0 +1,113 @@
+<script type="text/babel">
+    function LogsView({ user, role }) {
+      const [loading, setLoading] = useState(true);
+      const tableInstanceRef = useRef(null);
+
+      useEffect(() => {
+        loadLogs();
+        return () => {
+          if (tableInstanceRef.current) {
+            try {
+              tableInstanceRef.current.destroy();
+              tableInstanceRef.current = null;
+            } catch (e) {
+              console.log('DataTable cleanup error:', e);
+            }
+          }
+        };
+      }, []);
+
+      const loadLogs = () => {
+        setLoading(true);
+        google.script.run
+          .withSuccessHandler((result) => {
+            setLoading(false);
+            if (!result) {
+              Swal.fire({ icon: 'error', title: 'Error', text: 'No data received. Please run setupDemoData() in Code.gs first.' });
+              return;
+            }
+            if (result.success) {
+              initializeDataTable(result.data);
+            } else {
+              Swal.fire({ icon: 'error', title: 'Error', text: result.message });
+            }
+          })
+          .withFailureHandler((err) => {
+            setLoading(false);
+            Swal.fire({ icon: 'error', title: 'Error', text: err.message });
+          })
+          .getLogs(user, role);
+      };
+
+      const initializeDataTable = (data) => {
+        if (tableInstanceRef.current) {
+          try {
+            tableInstanceRef.current.destroy();
+            tableInstanceRef.current = null;
+            $('#logsTable').empty();
+          } catch (e) {
+            console.log('DataTable destroy error:', e);
+          }
+        }
+
+        setTimeout(() => {
+          try {
+            const table = $('#logsTable').DataTable({
+              data: data,
+              destroy: true,
+              columns: [
+                { data: 'ID', title: 'ID' },
+                { data: 'Username', title: 'Username' },
+                { data: 'Action', title: 'Action' },
+                { data: 'Details', title: 'Details' },
+                {
+                  data: 'Timestamp',
+                  title: 'Timestamp',
+                  render: (d) => {
+                    const date = new Date(d);
+                    return date.toLocaleString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit'
+                    });
+                  }
+                }
+              ],
+              pageLength: 10,
+              lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+              responsive: true,
+              dom: 'Blfrtip',
+              buttons: [
+                { extend: 'csv', text: '<i class="fas fa-file-csv"></i> CSV' },
+                { extend: 'pdf', text: '<i class="fas fa-file-pdf"></i> PDF' },
+                { extend: 'print', text: '<i class="fas fa-print"></i> Print' }
+              ],
+              order: [[0, 'desc']]
+            });
+
+            tableInstanceRef.current = table;
+          } catch (e) {
+            console.error('DataTable initialization error:', e);
+            Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to initialize table: ' + e.message });
+          }
+        }, 150);
+      };
+
+      return (
+        <div className="data-section">
+          <div className="section-header">
+            <h2>
+              <i className="fas fa-history"></i> Log Aktiviti
+            </h2>
+          </div>
+          {loading && <TableSkeleton rows={8} columns={5} />}
+          <div style={{ display: loading ? 'none' : 'block' }}>
+            <table id="logsTable" className="display" style={{ width: '100%' }}></table>
+          </div>
+        </div>
+      );
+    }
+</script>
